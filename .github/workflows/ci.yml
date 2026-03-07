@@ -19,31 +19,31 @@ jobs:
       uses: docker/setup-buildx-action@v3
 
     - name: Build Docker image
-      run: docker-compose build
+      run: docker compose build
 
     - name: Start container
-      run: docker-compose up -d
+      run: docker compose up -d
 
     - name: Wait for container to be ready
       run: sleep 5
 
     - name: Compile programs
       run: |
-        docker-compose exec -T benchmark bash -c "cd /workspace && make clean && make all"
+        docker compose exec -T benchmark bash -c "cd /workspace && make clean && make all"
 
     - name: Run basic benchmarks
       run: |
-        docker-compose exec -T benchmark bash -c "cd /workspace && ./stack_bench"
-        docker-compose exec -T benchmark bash -c "cd /workspace && ./heap_bench"
-        docker-compose exec -T benchmark bash -c "cd /workspace && ./mixed_bench"
+        docker compose exec -T benchmark bash -c "cd /workspace && ./stack_bench"
+        docker compose exec -T benchmark bash -c "cd /workspace && ./heap_bench"
+        docker compose exec -T benchmark bash -c "cd /workspace && ./mixed_bench"
 
     - name: Run assembly demo
       run: |
-        docker-compose exec -T benchmark bash -c "cd /workspace && ./stack_asm_demo"
+        docker compose exec -T benchmark bash -c "cd /workspace && ./stack_asm_demo"
 
     - name: Generate assembly code
       run: |
-        docker-compose exec -T benchmark bash -c "cd /workspace && make asm"
+        docker compose exec -T benchmark bash -c "cd /workspace && make asm"
 
     - name: Upload assembly artifacts
       uses: actions/upload-artifact@v4
@@ -57,7 +57,7 @@ jobs:
 
     - name: Stop container
       if: always()
-      run: docker-compose down
+      run: docker compose down
 
   documentation-check:
     runs-on: ubuntu-latest

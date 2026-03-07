@@ -35,9 +35,11 @@
 ├── docker-compose.yml      # 容器编排
 ├── Makefile               # 编译和测试目标
 ├── src/
-│   ├── stack_allocation.c  # 栈分配基准测试
-│   ├── heap_allocation.c   # 堆分配基准测试
-│   └── mixed_benchmark.c   # 混合对比测试
+│   ├── stack_allocation.c       # 栈分配基准测试
+│   ├── heap_allocation.c        # 堆分配基准测试
+│   ├── mixed_benchmark.c        # 混合对比测试
+│   ├── stack_asm_demo.c         # 汇编级演示
+│   └── stack_growth_comparison.c # 栈增长模式对比测试
 ├── scripts/
 │   ├── run_all_benchmarks.sh   # 运行所有测试
 │   ├── analyze_with_perf.sh    # perf 深度分析
@@ -113,6 +115,37 @@ perf stat -e cache-misses,cache-references,page-faults ./heap_bench
 strace -c -e trace=brk,mmap,munmap ./stack_bench
 strace -c -e trace=brk,mmap,munmap ./heap_bench
 ```
+
+**预期结果**：
+- **栈**：几乎 0 次 `brk`/`mmap` 系统调用（运行时）
+- **堆**：频繁的 `mmap`/`munmap` 调用（大块分配）
+
+### 测试 4：栈增长模式对比（验证缺页行为）
+
+```bash
+# 编译（关键：使用 -O0 禁用优化）
+gcc -O0 -Wall -Wextra -g -o stack_growth_comparison src/stack_growth_comparison.c
+
+# 运行并统计缺页次数
+perf stat -e page-faults ./stack_growth_comparison
+```
+
+**测试场景**：
+1. **场景 1（固定深度）**：100 次调用，每次 4 页（16KB）
+   - 预期：首次 ~4 次缺页，后续 0 次（页表复用）
+2. **场景 2（持续增长）**：100 层递归，每层 4 页（16KB）
+   - 预期：持续缺页 ~400 次（每层访问新页）
+
+**实测结果**：
+- 总缺页：424 次（接近预期 400 次）
+- 场景 1：0.012 ms（118 ns/次）
+- 场景 2：0.272 ms（2715 ns/次）
+- **性能差异：23 倍**
+
+**关键发现**：
+- ✅ 持续访问新栈页会持续缺页
+- ✅ 重复访问已访问页几乎不缺页（页表复用）
+- ✅ 单次缺页成本：~2.6 μs
 
 **预期结果**：
 - **栈**：几乎没有 `brk`/`mmap` 调用（只有程序初始化）

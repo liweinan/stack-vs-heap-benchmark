@@ -3,7 +3,7 @@ CFLAGS = -O2 -Wall -Wextra -g
 LDFLAGS =
 
 # 目标文件
-TARGETS = stack_bench heap_bench mixed_bench stack_asm_demo
+TARGETS = stack_bench heap_bench mixed_bench stack_asm_demo stack_growth_comparison
 
 # 所有目标
 all: $(TARGETS)
@@ -22,6 +22,10 @@ mixed_bench: src/mixed_benchmark.c
 
 # 汇编级演示
 stack_asm_demo: src/stack_asm_demo.c
+	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
+
+# 栈增长模式对比测试
+stack_growth_comparison: src/stack_growth_comparison.c
 	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
 
 # 清理
@@ -44,6 +48,9 @@ run: all
 	@echo ""
 	@echo "=== 运行汇编级演示 ==="
 	./stack_asm_demo
+	@echo ""
+	@echo "=== 运行栈增长模式对比测试 ==="
+	./stack_growth_comparison
 
 # 使用perf分析
 perf: all
@@ -52,6 +59,9 @@ perf: all
 	@echo ""
 	@echo "=== 使用perf分析堆分配 ==="
 	perf stat -e cycles,instructions,cache-misses,page-faults ./heap_bench
+	@echo ""
+	@echo "=== 使用perf分析栈增长模式（验证缺页行为）==="
+	perf stat -e page-faults ./stack_growth_comparison
 
 # 使用strace追踪系统调用
 strace: all

@@ -1,0 +1,30 @@
+# 编译产物
+*.o
+*.out
+stack_bench
+heap_bench
+mixed_bench
+stack_asm_demo
+*.s
+
+# perf 数据
+perf.data
+perf.data.old
+perf_*.data
+
+# strace 日志
+*.log
+heap_syscalls.out
+
+# Docker
+.dockerignore
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store

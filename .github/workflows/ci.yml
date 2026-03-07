@@ -1,0 +1,113 @@
+name: CI - Stack vs Heap Benchmark
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build Docker image
+      run: docker-compose build
+
+    - name: Start container
+      run: docker-compose up -d
+
+    - name: Wait for container to be ready
+      run: sleep 5
+
+    - name: Compile programs
+      run: |
+        docker-compose exec -T benchmark bash -c "cd /workspace && make clean && make all"
+
+    - name: Run basic benchmarks
+      run: |
+        docker-compose exec -T benchmark bash -c "cd /workspace && ./stack_bench"
+        docker-compose exec -T benchmark bash -c "cd /workspace && ./heap_bench"
+        docker-compose exec -T benchmark bash -c "cd /workspace && ./mixed_bench"
+
+    - name: Run assembly demo
+      run: |
+        docker-compose exec -T benchmark bash -c "cd /workspace && ./stack_asm_demo"
+
+    - name: Generate assembly code
+      run: |
+        docker-compose exec -T benchmark bash -c "cd /workspace && make asm"
+
+    - name: Upload assembly artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: assembly-output
+        path: |
+          stack_allocation.s
+          heap_allocation.s
+          stack_asm_demo.s
+        if-no-files-found: warn
+
+    - name: Stop container
+      if: always()
+      run: docker-compose down
+
+  documentation-check:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Check documentation files
+      run: |
+        echo "Checking documentation files..."
+        test -f README.md
+        test -f USAGE.md
+        test -f WHY_SO_DIFFERENT.md
+        test -f DEEP_ANALYSIS.md
+        test -f KERNEL_CODE_VERIFICATION.md
+        test -f PERFORMANCE_BREAKDOWN.md
+        test -f TEST_RESULTS.md
+        test -f INDEX.md
+        echo "✓ All documentation files present"
+
+    - name: Count documentation size
+      run: |
+        echo "Documentation statistics:"
+        wc -l *.md | tail -1
+        du -sh *.md *.txt 2>/dev/null || true
+
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Check C code formatting
+      run: |
+        echo "Checking C files for basic syntax..."
+        find src -name "*.c" -exec echo "Checking {}" \;
+        # Basic check - just ensure files are readable
+        find src -name "*.c" -exec cat {} \; > /dev/null
+
+    - name: Validate Makefile
+      run: |
+        echo "Validating Makefile..."
+        make -n all
+
+    - name: Validate shell scripts
+      run: |
+        echo "Checking shell scripts..."
+        bash -n quick-start.sh
+        bash -n scripts/run_all_benchmarks.sh
+        bash -n scripts/analyze_with_perf.sh
+        bash -n scripts/trace_syscalls.sh

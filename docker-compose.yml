@@ -1,0 +1,14 @@
+services:
+  benchmark:
+    build: .
+    container_name: stack-heap-benchmark
+    privileged: true  # 需要权限运行perf
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    command: /bin/bash
+    stdin_open: true
+    tty: true
+    cap_add:
+      - SYS_ADMIN  # perf需要
+      - SYS_PTRACE # strace需要

@@ -159,8 +159,8 @@ void *thread_func(void *arg) {
     printf("Thread %d:\n", thread_id);
     printf("  Current SP:        %p\n", sp);
 
-#ifdef __linux__
-    // 获取线程属性（仅 Linux）
+#if defined(__linux__) && defined(__GLIBC__)
+    // 获取线程属性（仅 glibc）
     pthread_attr_t attr;
     size_t stack_size;
     void *stack_addr;
@@ -176,7 +176,7 @@ void *thread_func(void *arg) {
 
     pthread_attr_destroy(&attr);
 #else
-    printf("  (Thread stack info not available on this platform)\n");
+    printf("  (Thread stack info requires glibc - not available on musl/macOS)\n");
 #endif
     printf("\n");
     return NULL;

@@ -3,7 +3,8 @@ CFLAGS = -O2 -Wall -Wextra -g
 LDFLAGS =
 
 # 目标文件
-TARGETS = stack_bench heap_bench mixed_bench stack_asm_demo stack_growth_comparison stack_overflow_test
+TARGETS = stack_bench heap_bench mixed_bench stack_asm_demo stack_growth_comparison \
+          stack_overflow_test stack_crash_demo stack_guard_page_demo
 
 # 所有目标
 all: $(TARGETS)
@@ -24,13 +25,21 @@ mixed_bench: src/mixed_benchmark.c
 stack_asm_demo: src/stack_asm_demo.c
 	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
 
-# 栈增长模式对比测试
+# 栈增长模式对比测试（使用 -O0 避免优化干扰缺页测试）
 stack_growth_comparison: src/stack_growth_comparison.c
-	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
+	$(CC) -O0 -Wall -Wextra -g -o $@ $< $(LDFLAGS)
 
 # 栈溢出测试
-stack_overflow_test: stack_overflow_test.c
+stack_overflow_test: src/stack_overflow_test.c
 	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
+
+# 栈崩溃演示
+stack_crash_demo: src/stack_crash_demo.c
+	$(CC) -O0 -Wall -Wextra -g -o $@ $< $(LDFLAGS)
+
+# 栈保护页演示
+stack_guard_page_demo: src/stack_guard_page_demo.c
+	$(CC) -O0 -Wall -Wextra -g -pthread -o $@ $< $(LDFLAGS)
 
 # 清理
 clean:

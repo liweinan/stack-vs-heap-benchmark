@@ -7,37 +7,68 @@
 #include <unistd.h>
 
 // 全局计数器，用于追踪递归深度
-static int recursion_depth = 0;
+static volatile int recursion_depth = 0;
 static int max_depth = 0;
 
-// 测试1: 无限递归 - 会触发栈溢出
-void infinite_recursion() {
-    char buffer[1024];  // 每次调用消耗 1KB 栈空间
-    recursion_depth++;
+// 测试1: 使用汇编不断 push 栈 - 会触发栈溢出
+void infinite_recursion(void) {
+    while (1) {
+        recursion_depth++;
 
-    // 每 1000 次打印一次
-    if (recursion_depth % 1000 == 0) {
-        printf("Recursion depth: %d (stack used: ~%d KB)\n",
-               recursion_depth, recursion_depth);
+        // 每 1000 次打印一次
+        if (recursion_depth % 1000 == 0) {
+            printf("Recursion depth: %d (stack used: ~%d KB)\n",
+                   recursion_depth, recursion_depth);
+            fflush(stdout);
+        }
+
+        // 使用汇编直接操作栈指针，每次 push 1KB
+#if defined(__x86_64__) || defined(__amd64__)
+        __asm__ volatile(
+            "sub $1024, %%rsp\n\t"
+            "movq $0, (%%rsp)\n\t"
+            :
+            :
+            : "memory"
+        );
+#elif defined(__aarch64__) || defined(__arm64__)
+        __asm__ volatile(
+            "sub sp, sp, #1024\n\t"
+            "str xzr, [sp]\n\t"
+            :
+            :
+            : "memory"
+        );
+#elif defined(__i386__)
+        __asm__ volatile(
+            "sub $1024, %%esp\n\t"
+            "movl $0, (%%esp)\n\t"
+            :
+            :
+            : "memory"
+        );
+#else
+        // Fallback for other architectures
+        volatile char buffer[1024];
+        buffer[0] = recursion_depth & 0xFF;
+        buffer[1023] = recursion_depth >> 8;
+#endif
     }
-
-    // 防止编译器优化掉 buffer
-    buffer[0] = recursion_depth & 0xFF;
-
-    infinite_recursion();  // 继续递归
 }
 
 // 测试2: 有限递归 - 控制深度
 int controlled_recursion(int depth) {
     char buffer[1024];  // 1KB per call
-    buffer[0] = depth & 0xFF;
+    volatile char *p = buffer;
+    p[0] = depth & 0xFF;
+    p[1023] = depth >> 8;
 
     if (depth > max_depth) {
         max_depth = depth;
     }
 
     if (depth <= 0) {
-        return 0;
+        return (int)p[0];  // 返回使用 buffer 的值
     }
 
     return controlled_recursion(depth - 1) + 1;
@@ -138,7 +169,7 @@ int main(int argc, char *argv[]) {
 
     max_depth = 0;
     int result = controlled_recursion(target_depth);
-    printf("Successfully completed %d levels of recursion\n", max_depth);
+    printf("Successfully completed %d levels of recursion (result: %d)\n", max_depth, result);
     printf("Each level used ~1KB, total ~%d MB\n\n", max_depth / 1024);
 
     // 测试2: 大数组分配
@@ -149,12 +180,13 @@ int main(int argc, char *argv[]) {
 
     // 测试3: 无限递归 - 会导致 SEGFAULT（注释掉，避免崩溃）
     if (argc > 1 && argv[1][0] == 'c') {  // crash mode
-        printf("\n=== Test 2: Infinite Recursion (WILL CRASH!) ===\n");
-        printf("This will cause a stack overflow...\n");
+        printf("\n=== Test 2: Assembly Stack Push (WILL CRASH!) ===\n");
+        printf("Using assembly to push stack until overflow...\n");
+        printf("Each iteration pushes 1KB onto the stack\n");
         sleep(1);
         infinite_recursion();  // 💥 BOOM!
     } else {
-        printf("\n=== Test 2: Infinite Recursion ===\n");
+        printf("\n=== Test 2: Assembly Stack Push ===\n");
         printf("(Skipped - would crash)\n");
         printf("Run with './stack_overflow_test c' to see the crash\n");
     }

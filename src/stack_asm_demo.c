@@ -97,8 +97,9 @@ void inline_asm_demo(void) {
     // ARM64: 读取栈指针（sp）
     __asm__ volatile("mov %0, sp" : "=r"(sp_before));
 
-    // ARM64: 模拟栈分配
-    __asm__ volatile("sub sp, sp, #0x100" ::: "sp");
+    // ARM64: 模拟栈分配（注意：实际使用中不应该手动修改 sp）
+    // 我们使用 memory clobber 来告诉编译器我们修改了内存
+    __asm__ volatile("sub sp, sp, #0x100" : : : "memory");
 
     // 再次读取
     __asm__ volatile("mov %0, sp" : "=r"(sp_after));
@@ -109,7 +110,7 @@ void inline_asm_demo(void) {
     printf("  差值:   %ld bytes (应该是 256)\n", sp_before - sp_after);
 
     // 恢复栈指针
-    __asm__ volatile("add sp, sp, #0x100" ::: "sp");
+    __asm__ volatile("add sp, sp, #0x100" : : : "memory");
 
     // 验证恢复
     uint64_t sp_restored;

@@ -331,18 +331,33 @@ int do_brk_flags(...)
 }
 ```
 
-### 3. 缺页处理 (`mm/memory.c`)
+### 3. 缺页处理（基于实际内核代码）
+
+**完整调用链** (详见 [KERNEL_PAGE_FAULT_HANDLING.md](KERNEL_PAGE_FAULT_HANDLING.md)):
 
 ```c
-// 首次访问新栈/堆区域时
-do_page_fault() → handle_pte_fault() → do_anonymous_page()
-{
-    // 分配物理页
-    page = alloc_zeroed_user_highpage_movable(...);
-    // 建立页表映射
-    set_pte_at(mm, address, page_table, entry);
-}
+// ✅ 准确的调用链（带源码位置）
+exc_page_fault()                    // arch/x86/mm/fault.c:1488
+  → handle_page_fault()             // arch/x86/mm/fault.c:1464
+    → do_user_addr_fault()          // arch/x86/mm/fault.c:1209
+      → handle_mm_fault()           // mm/memory.c:6346
+        → __handle_mm_fault()       // mm/memory.c:6119
+          → handle_pte_fault()      // mm/memory.c:6025
+            → do_pte_missing()      // mm/memory.c:4246
+              → do_anonymous_page() // mm/memory.c:5022
+                {
+                    folio = alloc_anon_folio(vmf);      // 分配物理页
+                    entry = folio_mk_pte(folio, ...);   // 创建 PTE
+                    set_ptes(..., entry, nr_pages);     // 设置页表
+                    update_mmu_cache_range(...);        // 刷新 TLB
+                }
 ```
+
+**关键步骤**：
+1. CPU 触发 #PF 异常 → 读取 CR2 寄存器获取出错地址
+2. 遍历页表层次 (PGD → P4D → PUD → PMD → PTE)
+3. 分配物理页 (folio，支持透明大页 THP)
+4. 建立页表映射 → 刷新 TLB → 返回用户态重新执行
 
 ## 验证博客中的论点
 

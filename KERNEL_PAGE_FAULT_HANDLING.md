@@ -3,6 +3,34 @@
 > **代码来源**: Linux kernel 主线代码 (arch/x86/mm/fault.c, mm/memory.c)
 > **架构**: x86_64
 
+## 🎯 快速参考：调用链总览
+
+```c
+// ✅ 准确的调用链（带源码位置）
+exc_page_fault()                    // arch/x86/mm/fault.c:1488
+  → handle_page_fault()             // arch/x86/mm/fault.c:1464
+    → do_user_addr_fault()          // arch/x86/mm/fault.c:1209
+      → handle_mm_fault()           // mm/memory.c:6346
+        → __handle_mm_fault()       // mm/memory.c:6119
+          → handle_pte_fault()      // mm/memory.c:6025
+            → do_pte_missing()      // mm/memory.c:4246
+              → do_anonymous_page() // mm/memory.c:5022
+                {
+                    folio = alloc_anon_folio(vmf);      // 分配物理页
+                    entry = folio_mk_pte(folio, ...);   // 创建 PTE
+                    set_ptes(..., entry, nr_pages);     // 设置页表
+                    update_mmu_cache_range(...);        // 刷新 TLB
+                }
+```
+
+**关键步骤**：
+1. **异常处理** (1488→1464→1209): CPU #PF → 读 CR2 → 查找 VMA
+2. **页表遍历** (6346→6119→6025): PGD → P4D → PUD → PMD → PTE
+3. **缺页分发** (4246): 区分匿名页 vs 文件页
+4. **物理分配** (5022): 分配 folio → 建立映射 → 刷新 TLB
+
+---
+
 ## 完整调用链
 
 ### 1. 异常入口：exc_page_fault()

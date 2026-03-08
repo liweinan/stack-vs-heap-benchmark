@@ -6,7 +6,11 @@ heap_bench
 mixed_bench
 stack_asm_demo
 stack_growth_comparison
+stack_overflow_test
+stack_crash_demo
+stack_guard_page_demo
 *.s
+*.dSYM/
 
 # perf 数据
 perf.data

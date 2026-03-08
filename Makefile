@@ -3,7 +3,7 @@ CFLAGS = -O2 -Wall -Wextra -g
 LDFLAGS =
 
 # 目标文件
-TARGETS = stack_bench heap_bench mixed_bench stack_asm_demo stack_growth_comparison
+TARGETS = stack_bench heap_bench mixed_bench stack_asm_demo stack_growth_comparison stack_overflow_test
 
 # 所有目标
 all: $(TARGETS)
@@ -26,6 +26,10 @@ stack_asm_demo: src/stack_asm_demo.c
 
 # 栈增长模式对比测试
 stack_growth_comparison: src/stack_growth_comparison.c
+	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
+
+# 栈溢出测试
+stack_overflow_test: stack_overflow_test.c
 	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
 
 # 清理

@@ -1,5 +1,11 @@
 # 栈 vs 堆 性能基准测试
 
+[![CI](https://github.com/liweinan/stack-vs-heap-benchmark/workflows/CI%20-%20Stack%20vs%20Heap%20Benchmark/badge.svg)](https://github.com/liweinan/stack-vs-heap-benchmark/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Docker](https://img.shields.io/badge/docker-Alpine%20Linux-0db7ed.svg)](https://www.docker.com/)
+[![Platform](https://img.shields.io/badge/platform-x86__64%20%7C%20ARM64-blue.svg)](https://github.com/liweinan/stack-vs-heap-benchmark)
+[![Language](https://img.shields.io/badge/language-C-00599C.svg)](https://en.wikipedia.org/wiki/C_(programming_language))
+
 本项目展示栈分配与堆分配的性能差异，并通过 `perf` 和 `strace` 等工具分析底层原因。
 
 ## 理论背景

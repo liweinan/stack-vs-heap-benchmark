@@ -5,6 +5,7 @@ stack_bench
 heap_bench
 mixed_bench
 stack_asm_demo
+stack_growth_comparison
 *.s
 
 # perf 数据

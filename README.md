@@ -8,6 +8,62 @@
 
 本项目展示栈分配与堆分配的性能差异，并通过 `perf` 和 `strace` 等工具分析底层原因。
 
+## 📚 文档导读
+
+本项目包含多个文档，按主题和深度分级，建议按以下顺序阅读：
+
+### 🚀 快速入门（5-10分钟）
+1. **[README.md](README.md)** - 本文档，快速开始和基础测试
+2. **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** - 常用命令速查表
+3. **[USAGE.md](USAGE.md)** - 详细使用指南
+
+### 📊 测试与结果（10-15分钟）
+4. **[TEST_RESULTS.md](TEST_RESULTS.md)** - 实际测试结果和性能数据
+5. **[EXPECTED_RESULTS.md](EXPECTED_RESULTS.md)** - 预期结果说明
+6. **[STACK_GROWTH_TEST_RESULTS.md](STACK_GROWTH_TEST_RESULTS.md)** - 栈增长模式测试（验证缺页行为）
+
+### 🔍 原理深入（30-60分钟）
+7. **[PERFORMANCE_BREAKDOWN.md](PERFORMANCE_BREAKDOWN.md)** - 性能差异的详细分解
+8. **[WHY_SO_DIFFERENT.md](WHY_SO_DIFFERENT.md)** - 为什么栈比堆快这么多
+9. **[FAIRNESS_ANALYSIS.md](FAIRNESS_ANALYSIS.md)** - 栈堆对比的公平性分析
+10. **[DEEP_ANALYSIS.md](DEEP_ANALYSIS.md)** - 深度技术分析
+
+### 🧠 内存机制（30-45分钟）
+11. **[STACK_OVERFLOW_EXPLAINED.md](STACK_OVERFLOW_EXPLAINED.md)** - 栈溢出机制详解（含实验）
+12. **[STACK_MEMORY_RECLAIM.md](STACK_MEMORY_RECLAIM.md)** - 栈内存回收机制
+13. **[STACK_PAGE_FAULT_CLARIFICATION.md](STACK_PAGE_FAULT_CLARIFICATION.md)** - 栈缺页处理澄清
+
+### ⚙️ Linux Kernel 源码级分析（60-90分钟）
+**需要一定内核基础，建议最后阅读**
+
+14. **[KERNEL_PAGE_FAULT_HANDLING.md](KERNEL_PAGE_FAULT_HANDLING.md)** - 缺页处理完整流程（基于实际内核代码）
+15. **[KERNEL_CODE_VERIFICATION.md](KERNEL_CODE_VERIFICATION.md)** - 内核代码验证
+16. **[KERNEL_VMA_PERSPECTIVE.md](KERNEL_VMA_PERSPECTIVE.md)** - 从内核VMA视角理解栈堆
+
+### 📖 其他
+17. **[INDEX.md](INDEX.md)** - 文档索引
+18. **[PROJECT_SUMMARY.md](PROJECT_SUMMARY.md)** - 项目总结
+
+### 💡 推荐学习路径
+
+**路径 A - 快速理解（30分钟）**
+```
+README → TEST_RESULTS → PERFORMANCE_BREAKDOWN → STACK_OVERFLOW_EXPLAINED
+```
+
+**路径 B - 深入掌握（2小时）**
+```
+README → USAGE → TEST_RESULTS → WHY_SO_DIFFERENT →
+DEEP_ANALYSIS → KERNEL_PAGE_FAULT_HANDLING
+```
+
+**路径 C - 内核开发者（3小时+）**
+```
+所有文档 + 对照 ~/works/linux 内核源码阅读
+```
+
+---
+
 ## 理论背景
 
 基于博客文章：[栈为什么比堆快：从分配方式到「批发-零售」链条](https://weinan.io/2026/03/01/stack-vs-heap-why-stack-faster.html)

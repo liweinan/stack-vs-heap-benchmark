@@ -43,6 +43,7 @@
 ### 📖 其他
 17. **[INDEX.md](INDEX.md)** - 文档索引
 18. **[PROJECT_SUMMARY.md](PROJECT_SUMMARY.md)** - 项目总结
+19. **[COMPILER_MEMORY_BARRIER.md](COMPILER_MEMORY_BARRIER.md)** - 编译器内存屏障（`__asm__ volatile("" : : : "memory");`）说明与 SDM 对应
 
 ### 💡 推荐学习路径
 

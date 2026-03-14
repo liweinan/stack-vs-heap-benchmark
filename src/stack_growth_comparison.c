@@ -1,7 +1,7 @@
 /*
  * Stack Growth Comparison Test - Assembly Version (Fixed)
  *
- * 使用汇编直接操作栈，确保精确触发缺页
+ * 使用固定大小数组避免 VLA 编译器优化问题
  *
  * 对比三种场景的缺页行为：
  * 1. 固定深度重复调用（首次缺页，后续复用）
@@ -14,9 +14,11 @@
 #include <stdint.h>
 #include <time.h>
 #include <unistd.h>
+#include <string.h>
 
 #define PAGE_SIZE 4096
 #define PAGES_PER_CALL 4  // 每次分配 4 页（16KB）
+#define FIXED_SIZE (PAGES_PER_CALL * PAGE_SIZE)  // 16384 bytes
 #define ITERATIONS 100
 
 // 全局计数器，防止优化
@@ -66,19 +68,17 @@ static inline void touch_and_restore_stack(int num_pages) {
 }
 
 /*
- * 场景 2/3 专用：分配、访问、不恢复（让栈持续增长）
+ * 场景 2/3 专用：使用固定大小数组，确保真正分配栈空间
  */
-static void touch_stack_no_restore(int num_pages) {
-    // 使用 char 数组让栈自然增长
-    // 编译器会生成 sub rsp, N
-    char buffer[num_pages * PAGE_SIZE];
+static void touch_stack_fixed(int depth) {
+    // 使用固定大小数组，编译器无法优化掉
+    char buffer[FIXED_SIZE];  // 16KB（4页）
 
     // 使用 volatile 指针确保访问不被优化
     volatile char *p = buffer;
 
     // 访问每一页的首尾，确保触发缺页
-    // 注意：PAGE_SIZE - 1 是页内最后一个字节
-    for (int i = 0; i < num_pages; i++) {
+    for (int i = 0; i < PAGES_PER_CALL; i++) {
         // 写入页首
         p[i * PAGE_SIZE] = (char)(0x42 + i);
         // 写入页尾
@@ -89,10 +89,13 @@ static void touch_stack_no_restore(int num_pages) {
         g_counter += p[i * PAGE_SIZE + (PAGE_SIZE - 1)];
     }
 
-    // 编译屏障
+    // 编译屏障，防止优化
     __asm__ volatile("" : : : "memory");
 
-    // 注意：不恢复栈，由函数返回时自然恢复
+    // 递归调用（如果 depth > 0）
+    if (depth > 0) {
+        touch_stack_fixed(depth - 1);
+    }
 }
 
 /*
@@ -100,21 +103,6 @@ static void touch_stack_no_restore(int num_pages) {
  */
 void fixed_depth_call(void) {
     touch_and_restore_stack(PAGES_PER_CALL);
-}
-
-/*
- * 场景 2：递归深度持续增长（栈不恢复，持续增长）
- */
-void growing_depth_call(int depth) {
-    if (depth <= 0) return;
-
-    // 关键：使用不恢复版本，让栈持续增长
-    touch_stack_no_restore(PAGES_PER_CALL);
-
-    // 递归到下一层（栈继续增长）
-    growing_depth_call(depth - 1);
-
-    // 函数返回时自然恢复栈
 }
 
 /*
@@ -154,14 +142,17 @@ uint64_t test_growing_depth(void) {
 
     printf("\n=== 场景 2: 持续增长递归深度 ===\n");
     printf("配置: 递归深度 %d 层，每层 %d 页（%d bytes）\n",
-           ITERATIONS, PAGES_PER_CALL, PAGE_SIZE * PAGES_PER_CALL);
-    printf("原理: 每层递归分配新栈空间，不恢复，持续向下增长\n");
+           ITERATIONS, PAGES_PER_CALL, FIXED_SIZE);
+    printf("原理: 每层递归使用固定数组，栈持续向下增长\n");
     printf("预期缺页: 每层 ~%d 次，总计 ~%d 次（持续访问新栈页）\n",
            PAGES_PER_CALL, ITERATIONS * PAGES_PER_CALL);
+    printf("预期栈增长: %d KB = %d 页\n",
+           (ITERATIONS * FIXED_SIZE) / 1024,
+           (ITERATIONS * FIXED_SIZE) / PAGE_SIZE);
 
     clock_gettime(CLOCK_MONOTONIC, &start);
 
-    growing_depth_call(ITERATIONS);
+    touch_stack_fixed(ITERATIONS - 1);  // 递归 100 层
 
     clock_gettime(CLOCK_MONOTONIC, &end);
 
@@ -192,7 +183,7 @@ uint64_t test_repeated_recursion(void) {
     clock_gettime(CLOCK_MONOTONIC, &start);
 
     for (int i = 0; i < REPEATS; i++) {
-        growing_depth_call(DEPTH);
+        touch_stack_fixed(DEPTH - 1);
     }
 
     clock_gettime(CLOCK_MONOTONIC, &end);
@@ -221,17 +212,18 @@ int main(int argc, char *argv[]) {
 #endif
 
     printf("======================================\n");
-    printf("栈增长模式对比测试 (修正版)\n");
+    printf("栈增长模式对比测试\n");
     printf("======================================\n");
     printf("PID: %d\n", getpid());
     printf("页大小: %d bytes\n", PAGE_SIZE);
     printf("初始栈指针: %p\n", initial_sp);
-    printf("编译优化: -O0 (禁用优化以确保真实缺页)\n");
+    printf("编译优化: -O0 (禁用优化)\n");
+    printf("每层分配: %d bytes (固定数组)\n", FIXED_SIZE);
     printf("\n");
-    printf("关键修正:\n");
-    printf("- 场景 1: 使用 sub/add 立即恢复，测试页表复用\n");
-    printf("- 场景 2: 使用 char 数组，栈持续增长，触发新缺页\n");
-    printf("- 场景 3: 同场景 2，但重复调用，测试复用\n");
+    printf("关键实现:\n");
+    printf("- 使用固定大小数组替代 VLA\n");
+    printf("- 每层真正分配 16KB（4页）\n");
+    printf("- 避免编译器优化\n");
     printf("\n");
 
     // 运行三个测试场景
@@ -257,13 +249,14 @@ int main(int argc, char *argv[]) {
     printf("运行: perf stat -e page-faults ./stack_growth_comparison\n");
     printf("\n");
     printf("预期结果:\n");
-    printf("  总缺页数 = 4 + 400 + 200 = 604 次\n");
-    printf("  (场景1:4 + 场景2:400 + 场景3:200)\n");
+    printf("  场景 1:   ~4 次（首次）\n");
+    printf("  场景 2: ~400 次（100 层 × 4 页）\n");
+    printf("  场景 3: ~200 次（50 层 × 4 页，首次）\n");
+    printf("  总计:   ~604 次\n");
     printf("\n");
-    printf("如果实际缺页数远小于 604:\n");
-    printf("  - 可能栈已被预先映射\n");
-    printf("  - 可能编译器优化了数组访问\n");
-    printf("  - 可能页面大小与预期不符\n");
+    printf("如果实际缺页数远小于预期:\n");
+    printf("  - 可能栈已被预先映射（启动时映射超过 1.6MB）\n");
+    printf("  - 页表复用效果好（重复访问相同栈区域）\n");
     printf("\n");
 
     return 0;

@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include <time.h>
 #include <string.h>
 
@@ -111,9 +112,9 @@ uint64_t benchmark_heap_reuse(void) {
 }
 
 void print_comparison(const char *name, uint64_t time_ns, uint64_t baseline_ns) {
-    printf("%-25s: %10lu ns (%.3f ms) | ",
+    printf("%-25s: %10" PRIu64 " ns (%.3f ms) | ",
            name, time_ns, time_ns / 1000000.0);
-    printf("平均: %6lu ns | ", time_ns / ITERATIONS);
+    printf("平均: %6" PRIu64 " ns | ", time_ns / ITERATIONS);
 
     if (baseline_ns > 0) {
         double ratio = (double)time_ns / baseline_ns;

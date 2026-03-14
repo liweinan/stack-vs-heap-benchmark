@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include <time.h>
 #include <string.h>
 
@@ -95,8 +96,8 @@ int main(void) {
     uint64_t end = get_time_ns();
     uint64_t elapsed = end - start;
 
-    printf("总时间: %lu ns (%.3f ms)\n", elapsed, elapsed / 1000000.0);
-    printf("平均每次分配: %lu ns\n", elapsed / ITERATIONS);
+    printf("总时间: %" PRIu64 " ns (%.3f ms)\n", elapsed, elapsed / 1000000.0);
+    printf("平均每次分配: %" PRIu64 " ns\n", elapsed / ITERATIONS);
     printf("每次分配成本: ~%.2f cycles (假设3GHz CPU)\n\n",
            (elapsed / ITERATIONS) * 3.0);
 
@@ -109,8 +110,8 @@ int main(void) {
     end = get_time_ns();
     elapsed = end - start;
 
-    printf("总时间: %lu ns (%.3f ms)\n", elapsed, elapsed / 1000000.0);
-    printf("平均每次分配: %lu ns\n", elapsed / LARGE_ITER);
+    printf("总时间: %" PRIu64 " ns (%.3f ms)\n", elapsed, elapsed / 1000000.0);
+    printf("平均每次分配: %" PRIu64 " ns\n", elapsed / LARGE_ITER);
     printf("每次分配成本: ~%.2f cycles (假设3GHz CPU)\n\n",
            (elapsed / LARGE_ITER) * 3.0);
 

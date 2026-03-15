@@ -25,8 +25,8 @@
 volatile int g_counter = 0;
 
 /*
- * 场景 1 专用：分配、访问、立即恢复（测试页表复用）
- * 用于 fixed_depth_call() -> test_fixed_depth()
+ * 场景 1 专用：每次分配 num_pages 页、访问首尾触发缺页、然后立即恢复 rsp。
+ * 这样同一块栈页被重复使用，仅首次访问产生缺页。由 test_fixed_depth() 循环调用。
  */
 static inline void touch_and_restore_stack(int num_pages) {
 #if defined(__x86_64__) || defined(__amd64__)
@@ -69,44 +69,28 @@ static inline void touch_and_restore_stack(int num_pages) {
 }
 
 /*
- * 场景 2、3 共用：使用固定大小数组，确保真正分配栈空间
- * 场景 2：test_growing_depth() 调用一次 touch_stack_fixed(ITERATIONS-1)
- * 场景 3：test_repeated_recursion() 多次调用 touch_stack_fixed(DEPTH-1)
+ * 场景 2、3 共用：固定大小数组（非 VLA），保证每层真正占用 16KB 栈且不被优化掉。
+ * 每层访问各页首尾触发缺页；memory 屏障防止编译器重排；递归时栈不恢复，持续增长。
+ * 场景 2：test_growing_depth() 调用一次 touch_stack_fixed(ITERATIONS-1)。
+ * 场景 3：test_repeated_recursion() 多次调用 touch_stack_fixed(DEPTH-1)。
  */
 static void touch_stack_fixed(int depth) {
-    // 使用固定大小数组，编译器无法优化掉
-    char buffer[FIXED_SIZE];  // 16KB（4页）
-
-    // 使用 volatile 指针确保访问不被优化
+    char buffer[FIXED_SIZE];
     volatile char *p = buffer;
 
-    // 访问每一页的首尾，确保触发缺页
     for (int i = 0; i < PAGES_PER_CALL; i++) {
-        // 写入页首
         p[i * PAGE_SIZE] = (char)(0x42 + i);
-        // 写入页尾
         p[i * PAGE_SIZE + (PAGE_SIZE - 1)] = (char)(0x42 + i);
-
-        // 立即读回，确保写入生效
         g_counter += p[i * PAGE_SIZE];
         g_counter += p[i * PAGE_SIZE + (PAGE_SIZE - 1)];
     }
-
-    // 编译屏障，防止优化
     __asm__ volatile("" : : : "memory");
 
-    // 递归调用（如果 depth > 0）
-    if (depth > 0) {
+    if (depth > 0)
         touch_stack_fixed(depth - 1);
-    }
 }
 
-/* 场景 1：单次“固定深度”调用（由 test_fixed_depth 循环 ITERATIONS 次） */
-static void fixed_depth_call(void) {
-    touch_and_restore_stack(PAGES_PER_CALL);
-}
-
-/* 场景 1 测试：重复调用固定深度函数 */
+/* 场景 1 测试：重复 ITERATIONS 次调用 touch_and_restore_stack，每次分配后立即恢复，验证页表复用。 */
 uint64_t test_fixed_depth(void) {
     struct timespec start, end;
 
@@ -117,10 +101,8 @@ uint64_t test_fixed_depth(void) {
     printf("预期缺页: 首次 ~%d 次，后续 ~0 次（页表复用）\n", PAGES_PER_CALL);
 
     clock_gettime(CLOCK_MONOTONIC, &start);
-
-    for (int i = 0; i < ITERATIONS; i++) {
-        fixed_depth_call();
-    }
+    for (int i = 0; i < ITERATIONS; i++)
+        touch_and_restore_stack(PAGES_PER_CALL);
 
     clock_gettime(CLOCK_MONOTONIC, &end);
 
@@ -133,7 +115,7 @@ uint64_t test_fixed_depth(void) {
     return elapsed_ns;
 }
 
-/* 场景 2 测试：持续增长的递归深度（单次递归 100 层） */
+/* 场景 2 测试：单次递归 100 层，每层 16KB，栈持续增长，验证持续缺页。 */
 uint64_t test_growing_depth(void) {
     struct timespec start, end;
 
@@ -162,7 +144,7 @@ uint64_t test_growing_depth(void) {
     return elapsed_ns;
 }
 
-/* 场景 3 测试：相同深度的重复递归（50 层 × 10 次） */
+/* 场景 3 测试：50 层递归重复 10 次，首次触缺页，后续复用同一栈区。 */
 uint64_t test_repeated_recursion(void) {
     struct timespec start, end;
     const int DEPTH = 50;    // 每次递归 50 层
@@ -196,7 +178,6 @@ int main(int argc, char *argv[]) {
     (void)argc;
     (void)argv;
 
-    // 获取初始栈指针位置
     void *initial_sp;
 #if defined(__x86_64__) || defined(__amd64__)
     __asm__ volatile("mov %%rsp, %0" : "=r"(initial_sp));
@@ -209,24 +190,15 @@ int main(int argc, char *argv[]) {
     printf("======================================\n");
     printf("栈增长模式对比测试\n");
     printf("======================================\n");
-    printf("PID: %d\n", getpid());
-    printf("页大小: %d bytes\n", PAGE_SIZE);
-    printf("初始栈指针: %p\n", initial_sp);
-    printf("编译优化: -O0 (禁用优化)\n");
-    printf("每层分配: %d bytes (固定数组)\n", FIXED_SIZE);
-    printf("\n");
-    printf("关键实现:\n");
-    printf("- 使用固定大小数组替代 VLA\n");
-    printf("- 每层真正分配 16KB（4页）\n");
-    printf("- 避免编译器优化\n");
+    printf("PID: %d  页大小: %d  每层: %d bytes  初始 SP: %p\n",
+           getpid(), PAGE_SIZE, FIXED_SIZE, initial_sp);
     printf("\n");
 
-    // 运行三个测试场景
+    /* 依次运行场景 1（固定深度重复）、场景 2（持续增长递归）、场景 3（同深度重复递归） */
     uint64_t time1 = test_fixed_depth();
     uint64_t time2 = test_growing_depth();
     uint64_t time3 = test_repeated_recursion();
 
-    /* 性能对比（场景 1、2、3 与文件头定义一致） */
     printf("\n=== 性能对比 ===\n");
     printf("场景 1（固定深度重复调用）: %.3f ms\n", time1 / 1000000.0);
     printf("场景 2（持续增长递归深度）: %.3f ms\n", time2 / 1000000.0);
@@ -243,7 +215,7 @@ int main(int argc, char *argv[]) {
     printf("=== 验证缺页次数 ===\n");
     printf("运行: perf stat -e page-faults ./stack_growth_comparison\n");
     printf("\n");
-    printf("预期缺页（与场景 1、2、3 对应）:\n");
+    printf("预期缺页:\n");
     printf("  场景 1:   ~4 次\n");
     printf("  场景 2: ~400 次（100 层 × 4 页）\n");
     printf("  场景 3: ~200 次（50 层 × 4 页，首次）\n");

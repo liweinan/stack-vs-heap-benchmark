@@ -37,32 +37,6 @@ static inline void *get_stack_pointer(void) {
 }
 
 /*
- * 使用纯汇编分配栈并访问每一页
- * 关键：不立即恢复栈，让栈持续增长
- */
-static void __attribute__((noinline)) allocate_and_touch_asm(int num_pages) {
-    // 使用固定大小数组，避免 VLA 被优化
-    // 每次分配 16KB (4 页)
-    char buffer[16384];  // 固定大小，不是 VLA
-    volatile char *p = buffer;
-
-    // 逐页访问，触发缺页
-    for (int i = 0; i < num_pages && i < 4; i++) {
-        // 写入页首
-        p[i * PAGE_SIZE] = (char)(0x42 + i);
-        // 写入页尾
-        p[i * PAGE_SIZE + (PAGE_SIZE - 1)] = (char)(0x42 + i);
-        // 读取验证
-        g_counter += p[i * PAGE_SIZE];
-        g_counter += p[i * PAGE_SIZE + (PAGE_SIZE - 1)];
-    }
-
-    // 内存屏障
-    __asm__ volatile("" ::: "memory");
-
-}
-
-/*
  * 递归调用，让栈持续增长
  * 关键：将 buffer 定义在递归函数本身，这样栈空间在整个递归链中保持占用
  */

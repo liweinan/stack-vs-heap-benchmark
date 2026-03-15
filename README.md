@@ -39,11 +39,12 @@
 14. **[KERNEL_PAGE_FAULT_HANDLING.md](KERNEL_PAGE_FAULT_HANDLING.md)** - 缺页处理完整流程（基于实际内核代码）
 15. **[KERNEL_CODE_VERIFICATION.md](KERNEL_CODE_VERIFICATION.md)** - 内核代码验证
 16. **[KERNEL_VMA_PERSPECTIVE.md](KERNEL_VMA_PERSPECTIVE.md)** - 从内核VMA视角理解栈堆
+17. **[MMAP_BRK_KERNEL_LEARNING.md](MMAP_BRK_KERNEL_LEARNING.md)** - 学习文档：mmap/brk/sbrk 在内核中的定义与实现（结合 strace）
 
 ### 📖 其他
-17. **[INDEX.md](INDEX.md)** - 文档索引
-18. **[PROJECT_SUMMARY.md](PROJECT_SUMMARY.md)** - 项目总结
-19. **[COMPILER_MEMORY_BARRIER.md](COMPILER_MEMORY_BARRIER.md)** - 编译器内存屏障（`__asm__ volatile("" : : : "memory");`）说明与 SDM 对应
+18. **[INDEX.md](INDEX.md)** - 文档索引
+19. **[PROJECT_SUMMARY.md](PROJECT_SUMMARY.md)** - 项目总结
+20. **[COMPILER_MEMORY_BARRIER.md](COMPILER_MEMORY_BARRIER.md)** - 编译器内存屏障（`__asm__ volatile("" : : : "memory");`）说明与 SDM 对应
 
 ### 💡 推荐学习路径
 

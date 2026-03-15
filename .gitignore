@@ -23,6 +23,7 @@ demos/sp_tracking_test
 demos/array_access_asm
 demos/dos_style_stack
 demos/vla_vs_fixed
+demos/heap_vs_stack_fairness
 *.s
 *.dSYM/
 

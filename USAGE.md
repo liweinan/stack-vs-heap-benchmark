@@ -68,6 +68,18 @@ make asm
 
 # 汇编级演示
 ./stack_asm_demo
+
+# 栈增长与缺页对比（三种场景）
+./stack_growth_comparison
+
+# 栈溢出与栈限制（默认安全测试；崩溃演示：./stack_overflow_test c 或 crash）
+./stack_overflow_test
+
+# 栈保护页演示
+./stack_guard_page_demo
+
+# 栈深度与缺页验证（递归+固定数组，可配合 perf stat -e page-faults）
+./pure_asm_stack_test
 ```
 
 #### 方式 3: 运行完整测试套件

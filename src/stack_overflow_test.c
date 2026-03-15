@@ -1,57 +1,61 @@
 /*
  * Stack Overflow Test - Demonstrates stack size limits
+ *
+ * 合并原 stack_crash_demo：运行 ./stack_overflow_test c 或 crash 时，
+ * 使用 SIGSEGV 处理器在栈溢出时打印深度并退出(139)。
  */
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <signal.h>
 #include <sys/resource.h>
 #include <unistd.h>
 
-// 全局计数器，用于追踪递归深度
-static volatile int recursion_depth = 0;
+// 全局计数器
+static volatile int overflow_depth = 0;  /* 供 SIGSEGV 处理器使用 */
 static int max_depth = 0;
 
-// 测试1: 使用汇编不断 push 栈 - 会触发栈溢出
-void infinite_recursion(void) {
-    while (1) {
-        recursion_depth++;
+/* SIGSEGV 处理器：栈溢出时打印深度并退出（原 stack_crash_demo 行为） */
+static void segfault_handler(int sig) {
+    (void)sig;
+    printf("\nSEGFAULT caught at depth ~%d (stack overflow)\n", overflow_depth);
+    exit(139);
+}
 
-        // 每 1000 次打印一次
-        if (recursion_depth % 1000 == 0) {
-            printf("Recursion depth: %d (stack used: ~%d KB)\n",
-                   recursion_depth, recursion_depth);
+/* 使用汇编不断 push 栈直到溢出（每次 8KB，原 stack_crash_demo 逻辑） */
+static void push_stack_until_overflow(void) {
+    while (1) {
+        overflow_depth++;
+        if (overflow_depth % 100 == 0) {
+            printf("Depth: %d, Stack used: ~%d KB\n",
+                   overflow_depth, overflow_depth * 8);
             fflush(stdout);
         }
-
-        // 使用汇编直接操作栈指针，每次 push 1KB
 #if defined(__x86_64__) || defined(__amd64__)
         __asm__ volatile(
-            "sub $1024, %%rsp\n\t"
+            "sub $8192, %%rsp\n\t"
             "movq $0, (%%rsp)\n\t"
-            :
-            :
-            : "memory"
+            "movq $0, 8184(%%rsp)\n\t"
+            : : : "memory"
         );
 #elif defined(__aarch64__) || defined(__arm64__)
         __asm__ volatile(
-            "sub sp, sp, #1024\n\t"
+            "sub sp, sp, #8192\n\t"
             "str xzr, [sp]\n\t"
-            :
-            :
-            : "memory"
+            "str xzr, [sp, #8184]\n\t"
+            : : : "memory"
         );
 #elif defined(__i386__)
         __asm__ volatile(
-            "sub $1024, %%esp\n\t"
+            "sub $8192, %%esp\n\t"
             "movl $0, (%%esp)\n\t"
-            :
-            :
-            : "memory"
+            "movl $0, 8188(%%esp)\n\t"
+            : : : "memory"
         );
 #else
-        // Fallback for other architectures
-        volatile char buffer[1024];
-        buffer[0] = recursion_depth & 0xFF;
-        buffer[1023] = recursion_depth >> 8;
+        volatile char *p = (volatile char *)alloca(8192);
+        p[0] = 0;
+        p[8191] = 0;
 #endif
     }
 }
@@ -178,17 +182,17 @@ int main(int argc, char *argv[]) {
     // 测试4: 修改栈大小
     test_stack_size_modification();
 
-    // 测试3: 无限递归 - 会导致 SEGFAULT（注释掉，避免崩溃）
-    if (argc > 1 && argv[1][0] == 'c') {  // crash mode
-        printf("\n=== Test 2: Assembly Stack Push (WILL CRASH!) ===\n");
-        printf("Using assembly to push stack until overflow...\n");
-        printf("Each iteration pushes 1KB onto the stack\n");
-        sleep(1);
-        infinite_recursion();  // 💥 BOOM!
+    /* 崩溃演示模式：8KB/次 push 直到 SEGV，由处理器打印深度并 exit(139) */
+    if (argc > 1 && (argv[1][0] == 'c' || strcmp(argv[1], "crash") == 0)) {
+        printf("\n=== Test 2: Assembly Stack Push (until SEGV) ===\n");
+        printf("Each iteration pushes 8KB; SIGSEGV handler will print depth and exit.\n");
+        signal(SIGSEGV, segfault_handler);
+        fflush(stdout);
+        push_stack_until_overflow();
     } else {
         printf("\n=== Test 2: Assembly Stack Push ===\n");
         printf("(Skipped - would crash)\n");
-        printf("Run with './stack_overflow_test c' to see the crash\n");
+        printf("Run with './stack_overflow_test c' or './stack_overflow_test crash' to run until overflow\n");
     }
 
     return 0;

@@ -260,7 +260,7 @@ heap_bench:  33,188 次缺页
 - [ ] 更新 CI/CD 测试修复版本
 
 ### 低优先级
-- [ ] 优化未使用函数的警告（pure_asm_stack_test.c）
+- [x] 优化未使用函数的警告（pure_asm_stack_test.c，已移除未使用的 allocate_and_touch_asm）
 - [ ] 添加更多架构支持（RISC-V）
 
 ---

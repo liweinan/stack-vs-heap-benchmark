@@ -306,5 +306,5 @@ for (int i = 0; i < 10; i++) {
 ## 参考
 
 - `/Users/weli/works/stack-vs-heap-benchmark/STACK_PREALLOCATION_ANALYSIS.md` - 内核源码分析
-- `/Users/weli/works/stack-vs-heap-benchmark/src/stack_depth_tracer.c` - 栈深度追踪器
+- `src/pure_asm_stack_test.c` - 栈深度/缺页验证（递归+固定数组）
 - Docker 测试结果（待补充）

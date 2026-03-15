@@ -3,10 +3,10 @@
  *
  * 使用固定大小数组避免 VLA 编译器优化问题
  *
- * 对比三种场景的缺页行为：
- * 1. 固定深度重复调用（首次缺页，后续复用）
- * 2. 持续增长深度（每层都缺页）- 关键：栈不恢复
- * 3. 相同深度重复递归（首次缺页，后续复用）
+ * 场景编号与含义（全文统一）：
+ *   场景 1：固定深度重复调用 - 每次分配后立即恢复，重复使用相同栈页（预期缺页 ~4）
+ *   场景 2：持续增长递归深度 - 单次递归 100 层，栈不恢复，每层都触缺页（预期缺页 ~400）
+ *   场景 3：相同深度重复递归 - 50 层递归重复 10 次，首次缺页后续复用（预期缺页 ~200 首次）
  */
 
 #include <stdio.h>
@@ -26,6 +26,7 @@ volatile int g_counter = 0;
 
 /*
  * 场景 1 专用：分配、访问、立即恢复（测试页表复用）
+ * 用于 fixed_depth_call() -> test_fixed_depth()
  */
 static inline void touch_and_restore_stack(int num_pages) {
 #if defined(__x86_64__) || defined(__amd64__)
@@ -68,7 +69,9 @@ static inline void touch_and_restore_stack(int num_pages) {
 }
 
 /*
- * 场景 2/3 专用：使用固定大小数组，确保真正分配栈空间
+ * 场景 2、3 共用：使用固定大小数组，确保真正分配栈空间
+ * 场景 2：test_growing_depth() 调用一次 touch_stack_fixed(ITERATIONS-1)
+ * 场景 3：test_repeated_recursion() 多次调用 touch_stack_fixed(DEPTH-1)
  */
 static void touch_stack_fixed(int depth) {
     // 使用固定大小数组，编译器无法优化掉
@@ -98,20 +101,16 @@ static void touch_stack_fixed(int depth) {
     }
 }
 
-/*
- * 场景 1：固定深度重复调用
- */
-void fixed_depth_call(void) {
+/* 场景 1：单次“固定深度”调用（由 test_fixed_depth 循环 ITERATIONS 次） */
+static void fixed_depth_call(void) {
     touch_and_restore_stack(PAGES_PER_CALL);
 }
 
-/*
- * 测试场景 1：重复调用固定深度函数
- */
+/* 场景 1 测试：重复调用固定深度函数 */
 uint64_t test_fixed_depth(void) {
     struct timespec start, end;
 
-    printf("\n=== 场景 1: 固定深度重复调用 ===\n");
+    printf("\n=== 场景 1：固定深度重复调用 ===\n");
     printf("配置: %d 次调用，每次 %d 页（%d bytes）\n",
            ITERATIONS, PAGES_PER_CALL, PAGE_SIZE * PAGES_PER_CALL);
     printf("原理: 每次分配后立即恢复，重复使用相同栈页\n");
@@ -134,13 +133,11 @@ uint64_t test_fixed_depth(void) {
     return elapsed_ns;
 }
 
-/*
- * 测试场景 2：持续增长的递归深度
- */
+/* 场景 2 测试：持续增长的递归深度（单次递归 100 层） */
 uint64_t test_growing_depth(void) {
     struct timespec start, end;
 
-    printf("\n=== 场景 2: 持续增长递归深度 ===\n");
+    printf("\n=== 场景 2：持续增长递归深度 ===\n");
     printf("配置: 递归深度 %d 层，每层 %d 页（%d bytes）\n",
            ITERATIONS, PAGES_PER_CALL, FIXED_SIZE);
     printf("原理: 每层递归使用固定数组，栈持续向下增长\n");
@@ -165,15 +162,13 @@ uint64_t test_growing_depth(void) {
     return elapsed_ns;
 }
 
-/*
- * 测试场景 3：相同深度的重复递归
- */
+/* 场景 3 测试：相同深度的重复递归（50 层 × 10 次） */
 uint64_t test_repeated_recursion(void) {
     struct timespec start, end;
     const int DEPTH = 50;    // 每次递归 50 层
     const int REPEATS = 10;  // 重复 10 次
 
-    printf("\n=== 场景 3: 相同深度重复递归 ===\n");
+    printf("\n=== 场景 3：相同深度重复递归 ===\n");
     printf("配置: 递归深度 %d 层（每层 %d 页），重复 %d 次\n",
            DEPTH, PAGES_PER_CALL, REPEATS);
     printf("原理: 第 1 次递归触发缺页，后续 %d 次复用相同栈页\n", REPEATS - 1);
@@ -231,25 +226,25 @@ int main(int argc, char *argv[]) {
     uint64_t time2 = test_growing_depth();
     uint64_t time3 = test_repeated_recursion();
 
-    // 性能对比
+    /* 性能对比（场景 1、2、3 与文件头定义一致） */
     printf("\n=== 性能对比 ===\n");
-    printf("场景 1 (固定深度): %.3f ms\n", time1 / 1000000.0);
-    printf("场景 2 (持续增长): %.3f ms\n", time2 / 1000000.0);
-    printf("场景 3 (重复递归): %.3f ms\n", time3 / 1000000.0);
+    printf("场景 1（固定深度重复调用）: %.3f ms\n", time1 / 1000000.0);
+    printf("场景 2（持续增长递归深度）: %.3f ms\n", time2 / 1000000.0);
+    printf("场景 3（相同深度重复递归）: %.3f ms\n", time3 / 1000000.0);
     printf("\n");
 
     if (time2 > time1) {
-        printf("分析: 场景 2 慢 %.1fx（持续缺页开销）\n", (double)time2 / time1);
+        printf("分析: 场景 2 比场景 1 慢 %.1fx（持续缺页开销）\n", (double)time2 / time1);
     } else {
-        printf("注意: 场景 2 应该比场景 1 慢（因为持续缺页）\n");
+        printf("注意: 场景 2 通常比场景 1 慢（因持续缺页）\n");
     }
 
     printf("\n");
     printf("=== 验证缺页次数 ===\n");
     printf("运行: perf stat -e page-faults ./stack_growth_comparison\n");
     printf("\n");
-    printf("预期结果:\n");
-    printf("  场景 1:   ~4 次（首次）\n");
+    printf("预期缺页（与场景 1、2、3 对应）:\n");
+    printf("  场景 1:   ~4 次\n");
     printf("  场景 2: ~400 次（100 层 × 4 页）\n");
     printf("  场景 3: ~200 次（50 层 × 4 页，首次）\n");
     printf("  总计:   ~604 次\n");

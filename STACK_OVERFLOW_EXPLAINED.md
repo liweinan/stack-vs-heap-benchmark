@@ -9,23 +9,14 @@
 ### 测试结果
 
 ```bash
-$ ./stack_crash_demo
-Starting stack overflow test...
-Each call uses 8KB, stack limit is ~8MB
-Should crash around depth 1000...
+$ ./stack_overflow_test crash
+...
+Each iteration pushes 8KB; SIGSEGV handler will print depth and exit.
 
-Depth: 0, Stack used: ~0 MB
-Depth: 100, Stack used: ~0 MB
-Depth: 200, Stack used: ~1 MB
-Depth: 300, Stack used: ~2 MB
-Depth: 400, Stack used: ~3 MB
-Depth: 500, Stack used: ~3 MB
-Depth: 600, Stack used: ~4 MB
-Depth: 700, Stack used: ~5 MB
-Depth: 800, Stack used: ~6 MB
-Depth: 900, Stack used: ~7 MB
-Depth: 1000, Stack used: ~7 MB
-Segmentation fault (core dumped)  ← 💥 崩溃！
+Depth: 100, Stack used: ~800 KB
+Depth: 200, Stack used: ~1600 KB
+...
+SEGFAULT caught at depth ~1024 (stack overflow)  ← 由处理器打印后 exit(139)
 ```
 
 **退出码**: 139 (128 + 11 = SIGSEGV)
@@ -299,32 +290,26 @@ int factorial_tail(int n, int acc) {
 ### 使用 GDB
 
 ```bash
-$ gdb ./stack_crash_demo
+$ gdb --args ./stack_overflow_test crash
 (gdb) run
 Program received signal SIGSEGV, Segmentation fault.
 
 (gdb) backtrace
-#0  crash_stack (depth=1024) at stack_crash_demo.c:10
-#1  crash_stack (depth=1023) at stack_crash_demo.c:20
-#2  crash_stack (depth=1022) at stack_crash_demo.c:20
-#3  crash_stack (depth=1021) at stack_crash_demo.c:20
-... (重复1000次)
+#0  push_stack_until_overflow () at src/stack_overflow_test.c:...
+...
 
 (gdb) info frame
 Stack level 0, frame at 0x7ffffffde000:  ← 栈指针位置
-rip = 0x555555555169 in crash_stack
-called by frame at 0x7ffffffde010
 ```
 
 ### 使用 AddressSanitizer
 
 ```bash
-$ gcc -fsanitize=address -o test stack_crash_demo.c
-$ ./test
+$ gcc -fsanitize=address -o test src/stack_overflow_test.c -lm
+$ ./test crash
 
-==12345==ERROR: AddressSanitizer: stack-overflow on address 0x7ffe00000000
-    #0 crash_stack stack_crash_demo.c:10
-    #1 crash_stack stack_crash_demo.c:20
+==12345==ERROR: AddressSanitizer: stack-overflow on address ...
+    #0 push_stack_until_overflow src/stack_overflow_test.c:...
     ...
 ```
 

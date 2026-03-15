@@ -2,10 +2,9 @@ CC = gcc
 CFLAGS = -O2 -Wall -Wextra -g
 LDFLAGS =
 
-# 目标文件
+# 目标文件（已合并：stack_crash_demo → stack_overflow_test c/crash；stack_depth_tracer 由 pure_asm_stack_test 替代）
 TARGETS = stack_bench heap_bench mixed_bench stack_asm_demo stack_growth_comparison \
-          stack_overflow_test stack_crash_demo stack_guard_page_demo stack_depth_tracer \
-          pure_asm_stack_test
+          stack_overflow_test stack_guard_page_demo pure_asm_stack_test
 
 # 所有目标
 all: $(TARGETS)
@@ -30,23 +29,15 @@ stack_asm_demo: src/stack_asm_demo.c
 stack_growth_comparison: src/stack_growth_comparison.c
 	$(CC) -O0 -Wall -Wextra -g -fno-inline -o $@ $< $(LDFLAGS)
 
-# 栈溢出测试
+# 栈溢出测试（含崩溃演示：./stack_overflow_test c 或 crash）
 stack_overflow_test: src/stack_overflow_test.c
 	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
-
-# 栈崩溃演示
-stack_crash_demo: src/stack_crash_demo.c
-	$(CC) -O0 -Wall -Wextra -g -o $@ $< $(LDFLAGS)
 
 # 栈保护页演示
 stack_guard_page_demo: src/stack_guard_page_demo.c
 	$(CC) -O0 -Wall -Wextra -g -pthread -o $@ $< $(LDFLAGS)
 
-# 栈深度追踪器
-stack_depth_tracer: src/stack_depth_tracer.c
-	$(CC) -O0 -Wall -Wextra -g -o $@ $< $(LDFLAGS)
-
-# 纯汇编栈测试
+# 纯汇编栈测试（递归+固定数组，替代原 stack_depth_tracer 的栈深度/缺页验证）
 pure_asm_stack_test: src/pure_asm_stack_test.c
 	$(CC) -O0 -Wall -Wextra -g -o $@ $< $(LDFLAGS)
 

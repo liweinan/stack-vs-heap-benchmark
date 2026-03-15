@@ -33,7 +33,7 @@ __asm__ volatile("" : : : "memory");
 
 ## 在本项目中的用途
 
-在 `src/stack_depth_tracer.c`、`src/stack_growth_comparison.c` 等文件中，该屏障放在“触摸栈页”的循环之后：
+在 `src/stack_growth_comparison.c`、`src/pure_asm_stack_test.c` 等文件中，该屏障放在“触摸栈页”的循环之后：
 
 - 保证编译器不会把循环内的写重排到屏障之后；
 - 保证编译器不会因“后续未使用”而优化掉这些写；

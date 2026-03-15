@@ -90,7 +90,7 @@ time: 74.7 ms
 总缺页: 28 次  ❌ (仅为预期的 4.6%)
 ```
 
-**根本原因**: `stack_depth_tracer` 验证显示 VLA 被编译器优化
+**根本原因**: 使用 VLA 的栈深度验证（原 `stack_depth_tracer`）显示 VLA 被编译器优化；现由 `pure_asm_stack_test`（固定数组）替代做栈深度/缺页验证。
 
 ```
 测试 2 (200 层递归):

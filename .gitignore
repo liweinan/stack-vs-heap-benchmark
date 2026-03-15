@@ -8,9 +8,7 @@ stack_asm_demo
 stack_growth_comparison
 stack_growth_comparison_fixed
 stack_overflow_test
-stack_crash_demo
 stack_guard_page_demo
-stack_depth_tracer
 pure_asm_stack_test
 *.s
 *.dSYM/

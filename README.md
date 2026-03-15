@@ -99,11 +99,14 @@ DEEP_ANALYSIS → KERNEL_PAGE_FAULT_HANDLING
 ├── docker-compose.yml      # 容器编排
 ├── Makefile               # 编译和测试目标
 ├── src/
-│   ├── stack_allocation.c       # 栈分配基准测试
-│   ├── heap_allocation.c        # 堆分配基准测试
-│   ├── mixed_benchmark.c        # 混合对比测试
-│   ├── stack_asm_demo.c         # 汇编级演示
-│   └── stack_growth_comparison.c # 栈增长模式对比测试
+│   ├── stack_allocation.c        # 栈分配基准测试
+│   ├── heap_allocation.c         # 堆分配基准测试
+│   ├── mixed_benchmark.c         # 混合对比测试
+│   ├── stack_asm_demo.c          # 汇编级演示
+│   ├── stack_growth_comparison.c # 栈增长模式对比测试
+│   ├── stack_overflow_test.c    # 栈溢出/限制（含 ./stack_overflow_test crash 演示）
+│   ├── stack_guard_page_demo.c  # 栈保护页演示
+│   └── pure_asm_stack_test.c     # 栈深度与缺页验证（递归+固定数组）
 ├── scripts/
 │   ├── run_all_benchmarks.sh   # 运行所有测试
 │   ├── analyze_with_perf.sh    # perf 深度分析

@@ -26,7 +26,8 @@
 7. **[PERFORMANCE_BREAKDOWN.md](PERFORMANCE_BREAKDOWN.md)** - 性能差异的详细分解
 8. **[WHY_SO_DIFFERENT.md](WHY_SO_DIFFERENT.md)** - 为什么栈比堆快这么多
 9. **[FAIRNESS_ANALYSIS.md](FAIRNESS_ANALYSIS.md)** - 栈堆对比的公平性分析
-10. **[DEEP_ANALYSIS.md](DEEP_ANALYSIS.md)** - 深度技术分析
+10. **[CACHE_ANALYSIS.md](CACHE_ANALYSIS.md)** - CPU缓存命中率分析（⭐ 新增）
+11. **[DEEP_ANALYSIS.md](DEEP_ANALYSIS.md)** - 深度技术分析
 
 ### 🧠 内存机制（30-45分钟）
 11. **[STACK_OVERFLOW_EXPLAINED.md](STACK_OVERFLOW_EXPLAINED.md)** - 栈溢出机制详解（含实验）
@@ -45,6 +46,8 @@
 18. **[INDEX.md](INDEX.md)** - 文档索引
 19. **[PROJECT_SUMMARY.md](PROJECT_SUMMARY.md)** - 项目总结
 20. **[COMPILER_MEMORY_BARRIER.md](COMPILER_MEMORY_BARRIER.md)** - 编译器内存屏障（`__asm__ volatile("" : : : "memory");`）说明与 SDM 对应
+21. **[demos/STACK_ACCESS_HISTORY.md](demos/STACK_ACCESS_HISTORY.md)** - 栈访问方式的历史演进（DOS→现代）（⭐ 新增）
+22. **[demos/](demos/)** - 教学演示代码（数组访问、栈指针跟踪等）（⭐ 新增）
 
 ### 💡 推荐学习路径
 

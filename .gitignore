@@ -14,8 +14,14 @@ test_loop_stack
 stack_scope_test
 sp_tracking_test
 array_access_asm
+dos_style_stack
 stack_crash_demo
 stack_depth_tracer
+demos/test_loop_stack
+demos/stack_scope_test
+demos/sp_tracking_test
+demos/array_access_asm
+demos/dos_style_stack
 *.s
 *.dSYM/
 

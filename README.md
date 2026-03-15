@@ -46,8 +46,9 @@
 18. **[INDEX.md](INDEX.md)** - 文档索引
 19. **[PROJECT_SUMMARY.md](PROJECT_SUMMARY.md)** - 项目总结
 20. **[COMPILER_MEMORY_BARRIER.md](COMPILER_MEMORY_BARRIER.md)** - 编译器内存屏障（`__asm__ volatile("" : : : "memory");`）说明与 SDM 对应
-21. **[demos/STACK_ACCESS_HISTORY.md](demos/STACK_ACCESS_HISTORY.md)** - 栈访问方式的历史演进（DOS→现代）（⭐ 新增）
-22. **[demos/](demos/)** - 教学演示代码（数组访问、栈指针跟踪等）（⭐ 新增）
+21. **[VLA_EXPLAINED.md](VLA_EXPLAINED.md)** - VLA（变长数组）详解：为什么避免使用（⭐ 新增）
+22. **[demos/STACK_ACCESS_HISTORY.md](demos/STACK_ACCESS_HISTORY.md)** - 栈访问方式的历史演进（DOS→现代）（⭐ 新增）
+23. **[demos/](demos/)** - 教学演示代码（数组访问、栈指针跟踪、VLA对比等）（⭐ 新增）
 
 ### 💡 推荐学习路径
 

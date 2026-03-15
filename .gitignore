@@ -22,6 +22,7 @@ demos/stack_scope_test
 demos/sp_tracking_test
 demos/array_access_asm
 demos/dos_style_stack
+demos/vla_vs_fixed
 *.s
 *.dSYM/
 

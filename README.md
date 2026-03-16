@@ -27,30 +27,31 @@
 8. **[WHY_SO_DIFFERENT.md](WHY_SO_DIFFERENT.md)** - 为什么栈比堆快这么多
 9. **[FAIRNESS_ANALYSIS.md](FAIRNESS_ANALYSIS.md)** - 栈堆对比的公平性分析
 10. **[WHEN_HEAP_WINS.md](WHEN_HEAP_WINS.md)** - 什么时候堆比栈好？反驳"栈快为什么不全用栈"（⭐ 新增）
-11. **[CACHE_ANALYSIS.md](CACHE_ANALYSIS.md)** - CPU缓存命中率分析（⭐ 新增）
-12. **[DEEP_ANALYSIS.md](DEEP_ANALYSIS.md)** - 深度技术分析
+11. **[HEAP_WINS_ASSEMBLY_ANALYSIS.md](HEAP_WINS_ASSEMBLY_ANALYSIS.md)** - 堆比栈快的汇编层面分析：对象复用场景（⭐ 新增）
+12. **[CACHE_ANALYSIS.md](CACHE_ANALYSIS.md)** - CPU缓存命中率分析（⭐ 新增）
+13. **[DEEP_ANALYSIS.md](DEEP_ANALYSIS.md)** - 深度技术分析
 
 ### 🧠 内存机制（30-45分钟）
-13. **[STACK_OVERFLOW_EXPLAINED.md](STACK_OVERFLOW_EXPLAINED.md)** - 栈溢出机制详解（含实验）
-14. **[STACK_MEMORY_RECLAIM.md](STACK_MEMORY_RECLAIM.md)** - 栈内存回收机制
-15. **[STACK_PAGE_FAULT_CLARIFICATION.md](STACK_PAGE_FAULT_CLARIFICATION.md)** - 栈缺页处理澄清
+14. **[STACK_OVERFLOW_EXPLAINED.md](STACK_OVERFLOW_EXPLAINED.md)** - 栈溢出机制详解（含实验）
+15. **[STACK_MEMORY_RECLAIM.md](STACK_MEMORY_RECLAIM.md)** - 栈内存回收机制
+16. **[STACK_PAGE_FAULT_CLARIFICATION.md](STACK_PAGE_FAULT_CLARIFICATION.md)** - 栈缺页处理澄清
 
 ### ⚙️ Linux Kernel 源码级分析（60-90分钟）
 **需要一定内核基础，建议最后阅读**
 
-16. **[KERNEL_PAGE_FAULT_HANDLING.md](KERNEL_PAGE_FAULT_HANDLING.md)** - 缺页处理完整流程（基于实际内核代码）
-17. **[KERNEL_CODE_VERIFICATION.md](KERNEL_CODE_VERIFICATION.md)** - 内核代码验证
-18. **[KERNEL_VMA_PERSPECTIVE.md](KERNEL_VMA_PERSPECTIVE.md)** - 从内核VMA视角理解栈堆
-19. **[MMAP_BRK_KERNEL_LEARNING.md](MMAP_BRK_KERNEL_LEARNING.md)** - 学习文档：mmap/brk/sbrk 在内核中的定义与实现（结合 strace）
+17. **[KERNEL_PAGE_FAULT_HANDLING.md](KERNEL_PAGE_FAULT_HANDLING.md)** - 缺页处理完整流程（基于实际内核代码）
+18. **[KERNEL_CODE_VERIFICATION.md](KERNEL_CODE_VERIFICATION.md)** - 内核代码验证
+19. **[KERNEL_VMA_PERSPECTIVE.md](KERNEL_VMA_PERSPECTIVE.md)** - 从内核VMA视角理解栈堆
+20. **[MMAP_BRK_KERNEL_LEARNING.md](MMAP_BRK_KERNEL_LEARNING.md)** - 学习文档：mmap/brk/sbrk 在内核中的定义与实现（结合 strace）
 
 ### 📖 其他
-20. **[INDEX.md](INDEX.md)** - 文档索引
-21. **[PROJECT_SUMMARY.md](PROJECT_SUMMARY.md)** - 项目总结
-22. **[COMPILER_MEMORY_BARRIER.md](COMPILER_MEMORY_BARRIER.md)** - 编译器内存屏障（`__asm__ volatile("" : : : "memory");`）说明与 SDM 对应
-23. **[VLA_EXPLAINED.md](VLA_EXPLAINED.md)** - VLA（变长数组）详解：为什么避免使用（⭐ 新增）
-24. **[demos/STACK_ACCESS_HISTORY.md](demos/STACK_ACCESS_HISTORY.md)** - 栈访问方式的历史演进（DOS→现代）（⭐ 新增）
-25. **[demos/](demos/)** - 教学演示代码（数组访问、栈指针跟踪、VLA对比等）（⭐ 新增）
-26. **[demos/heap_vs_stack_fairness.c](demos/heap_vs_stack_fairness.c)** - 公平的堆栈对比测试（展示堆的优势场景）（⭐ 新增）
+21. **[INDEX.md](INDEX.md)** - 文档索引
+22. **[PROJECT_SUMMARY.md](PROJECT_SUMMARY.md)** - 项目总结
+23. **[COMPILER_MEMORY_BARRIER.md](COMPILER_MEMORY_BARRIER.md)** - 编译器内存屏障（`__asm__ volatile("" : : : "memory");`）说明与 SDM 对应
+24. **[VLA_EXPLAINED.md](VLA_EXPLAINED.md)** - VLA（变长数组）详解：为什么避免使用（⭐ 新增）
+25. **[demos/STACK_ACCESS_HISTORY.md](demos/STACK_ACCESS_HISTORY.md)** - 栈访问方式的历史演进（DOS→现代）（⭐ 新增）
+26. **[demos/](demos/)** - 教学演示代码（数组访问、栈指针跟踪、VLA对比等）（⭐ 新增）
+27. **[demos/heap_vs_stack_fairness.c](demos/heap_vs_stack_fairness.c)** - 公平的堆栈对比测试（展示堆的优势场景）（⭐ 新增）
 
 ### 💡 推荐学习路径
 

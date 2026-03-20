@@ -2,12 +2,16 @@ CC = gcc
 CFLAGS = -O2 -Wall -Wextra -g
 LDFLAGS =
 
-# 目标文件（已合并：stack_crash_demo → stack_overflow_test c/crash；stack_depth_tracer 由 pure_asm_stack_test 替代）
+# 主目标文件（src/）
 TARGETS = stack_bench heap_bench mixed_bench stack_asm_demo stack_growth_comparison \
           stack_overflow_test stack_guard_page_demo pure_asm_stack_test
 
+# demo 目标文件（demos/）
+DEMO_TARGETS = heap_vs_stack_fairness dos_style_stack array_access_asm \
+               sp_tracking_test stack_scope_test test_loop_stack vla_vs_fixed
+
 # 所有目标
-all: $(TARGETS)
+all: $(TARGETS) $(DEMO_TARGETS)
 
 # 栈分配基准测试
 stack_bench: src/stack_allocation.c
@@ -41,9 +45,13 @@ stack_guard_page_demo: src/stack_guard_page_demo.c
 pure_asm_stack_test: src/pure_asm_stack_test.c
 	$(CC) -O0 -Wall -Wextra -g -o $@ $< $(LDFLAGS)
 
+# demo 程序（统一规则：demos/foo.c -> ./foo）
+$(DEMO_TARGETS): %: demos/%.c
+	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
+
 # 清理
 clean:
-	rm -f $(TARGETS)
+	rm -f $(TARGETS) $(DEMO_TARGETS)
 	rm -f *.o *.s
 	rm -f perf.data perf.data.old perf_*.data
 	rm -f *.out *.log

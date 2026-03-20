@@ -10,6 +10,9 @@ stack_growth_comparison_fixed
 stack_overflow_test
 stack_guard_page_demo
 pure_asm_stack_test
+# demos/ 经 Makefile 编译到仓库根目录的二进制（与 DEMO_TARGETS 一致）
+heap_vs_stack_fairness
+vla_vs_fixed
 test_loop_stack
 stack_scope_test
 sp_tracking_test

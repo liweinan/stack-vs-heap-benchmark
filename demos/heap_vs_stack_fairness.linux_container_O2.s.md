@@ -2,16 +2,24 @@
 	.arch armv8-a
 	.file	"heap_vs_stack_fairness.c"
 /* ============================================================================
- * 完整汇编（Linux 容器）+ 人工标注
+ * Linux 容器内完整汇编 + 人工标注
  *
- * 生成命令（仓库根目录）：
+ * 生成（仓库根目录）：
  *   docker-compose run --rm benchmark sh -c \
  *     'gcc -S -O2 -fverbose-asm demos/heap_vs_stack_fairness.c \
  *      -o demos/heap_vs_stack_fairness.linux_container_O2.s'
  *
- * 环境：Alpine GCC 15.2.0，aarch64-alpine-linux-musl，-O2，默认栈保护。
- * 标注说明：以 "【】" 标出热循环、syscall 边界、栈金丝雀、场景2 对比核心。
- * 配套文档：FAIRNESS_CONTAINER_LINUX_ASM_ANALYSIS.md
+ * 环境：Alpine GCC，aarch64-alpine-linux-musl，-O2，默认启用 -fstack-protector 类选项。
+ *
+ * 【术语：guard page vs 编译器 SSP】
+ * - 内核「栈保护页 / guard page」：栈向低地址增长时，常在映射边界留一页 PROT_NONE（或 guard gap），
+ *   栈溢出越过合法映射会 **缺页/SIGSEGV**，属 **内核 MMU + 进程地址空间** 机制；**不**体现为下面
+ *   某条固定汇编「读 guard page」。
+ * - 编译器 **SSP（Stack Smashing Protector）**：全局变量 `__stack_chk_guard`（金丝雀），经 **GOT**
+ *   加载、副本存栈槽、返回前与内存中当前值比较；**全程用户态**，与 musl 初始化（如 AT_RANDOM）的
+ *   关系见 MUSL_STACK_CHK_GUARD_ANALYSIS.md；与「内核保护页」是 **不同层次** 的两件事。
+ *
+ * 正文注释：函数头一行概览；同一句 C 对应多行指令时块首标一次。配套：FAIRNESS_CONTAINER_LINUX_ASM_ANALYSIS.md §5
  * ============================================================================
  */
 // GNU C23 (Alpine 15.2.0) version 15.2.0 (aarch64-alpine-linux-musl)
@@ -22,9 +30,7 @@
 	.text
 	.align	2
 	.p2align 5,,15
-/* 【场景1-栈】test1_stack_small_object：函数级 sub sp,#1072（1KB buffer + canary 槽）。
- * 热循环 .L2：对 [sp+40]、[sp+1063] 读写；无 bl。计时含 clock_gettime。
- */
+/* 场景1-栈：test1_stack_small_object — 1KB 局部数组 + SSP；热循环 .L2 无 bl */
 	.global	test1_stack_small_object
 	.type	test1_stack_small_object, %function
 test1_stack_small_object:
@@ -34,71 +40,56 @@ test1_stack_small_object:
 	.cfi_def_cfa_offset 16
 	.cfi_offset 29, -16
 	.cfi_offset 30, -8
+	/* 【SSP 序言】adrp/ldr 经 GOT 得 guard 变量地址；紧接着 ldr/str 把 *guard 写入栈槽 [sp,#1064]（与内核栈保护页无关）。 */
 	adrp	x0, :got:__stack_chk_guard	// tmp122,
 	ldr	x0, [x0, :got_lo12:__stack_chk_guard]	// tmp122,
 	mov	x29, sp	//,
 	sub	sp, sp, #1072	//,,
 	.cfi_def_cfa_offset 1088
-// demos/heap_vs_stack_fairness.c:30: uint64_t test1_stack_small_object() {
+// test1_stack_small_object() { — 金丝雀副本 [sp,#1064]
 	ldr	x1, [x0]	// tmp149,
 	str	x1, [sp, 1064]	// tmp149, D.5489
 	mov	x1, 0	// tmp149
-// demos/heap_vs_stack_fairness.c:32:     clock_gettime(CLOCK_MONOTONIC, &start);
+// clock_gettime(MONOTONIC, &start)
 	mov	w0, 1	//,
 	add	x1, sp, 8	//,,
 	bl	clock_gettime		//
+// for (i=0; i<ITERATIONS; i++) — 常量 w5=1_000_000，x3→g_sum
 	adrp	x3, .LANCHOR0	// tmp148,
-// demos/heap_vs_stack_fairness.c:34:     for (int i = 0; i < ITERATIONS; i++) {
 	mov	w5, 16960	// tmp136,
-// demos/heap_vs_stack_fairness.c:41:         g_sum += p[0] + p[SMALL_SIZE-1];
 	add	x3, x3, :lo12:.LANCHOR0	// tmp131, tmp148,
-// demos/heap_vs_stack_fairness.c:34:     for (int i = 0; i < ITERATIONS; i++) {
 	mov	w1, 0	// i,
-// demos/heap_vs_stack_fairness.c:34:     for (int i = 0; i < ITERATIONS; i++) {
 	movk	w5, 0xf, lsl 16	// tmp136,,
 	.p2align 5,,15
-/* 【热循环 .L2】场景1-栈：百万次迭代，仅访存与 g_sum，无函数调用。 */
 .L2:
-// demos/heap_vs_stack_fairness.c:39:         p[0] = i & 0xFF;
+	// 写 buffer[0]/[1023]；i++；读回；g_sum += …；直到 i==1_000_000
 	strb	w1, [sp, 40]	// _128, MEM[(volatile char *)&buffer]
-// demos/heap_vs_stack_fairness.c:40:         p[SMALL_SIZE-1] = (i >> 8) & 0xFF;
 	asr	w0, w1, 8	// _3, i,
 	strb	w0, [sp, 1063]	// _3, MEM[(volatile char *)&buffer + 1023B]
-// demos/heap_vs_stack_fairness.c:34:     for (int i = 0; i < ITERATIONS; i++) {
 	add	w1, w1, 1	// i, i,
-// demos/heap_vs_stack_fairness.c:41:         g_sum += p[0] + p[SMALL_SIZE-1];
 	ldrb	w0, [sp, 40]	//, MEM[(volatile char *)&buffer]
-// demos/heap_vs_stack_fairness.c:41:         g_sum += p[0] + p[SMALL_SIZE-1];
 	ldrb	w2, [sp, 1063]	//, MEM[(volatile char *)&buffer + 1023B]
-// demos/heap_vs_stack_fairness.c:41:         g_sum += p[0] + p[SMALL_SIZE-1];
 	ldr	w4, [x3]	//, g_sum
-// demos/heap_vs_stack_fairness.c:41:         g_sum += p[0] + p[SMALL_SIZE-1];
 	and	w2, w2, 255	// _6, MEM[(volatile char *)&buffer + 1023B]
-// demos/heap_vs_stack_fairness.c:41:         g_sum += p[0] + p[SMALL_SIZE-1];
 	add	w0, w2, w0, uxtb	// _29, _6, MEM[(volatile char *)&buffer]
-// demos/heap_vs_stack_fairness.c:41:         g_sum += p[0] + p[SMALL_SIZE-1];
 	add	w0, w0, w4	// _9, _29, g_sum.0_8
 	str	w0, [x3]	// _9, g_sum
-// demos/heap_vs_stack_fairness.c:34:     for (int i = 0; i < ITERATIONS; i++) {
 	cmp	w1, w5	// i, tmp136
 	bne	.L2		//,
-// demos/heap_vs_stack_fairness.c:44:     clock_gettime(CLOCK_MONOTONIC, &end);
+// clock_gettime(MONOTONIC, &end)
 	add	x1, sp, 24	//,,
 	mov	w0, 1	//,
 	bl	clock_gettime		//
-// demos/heap_vs_stack_fairness.c:46:            (end.tv_nsec - start.tv_nsec);
+// return (end-start) ns
 	ldp	x1, x2, [sp, 8]	// start.tv_sec, start.tv_nsec,
-// demos/heap_vs_stack_fairness.c:45:     return (end.tv_sec - start.tv_sec) * 1000000000ULL +
 	ldr	x0, [sp, 24]	// end.tv_sec, end.tv_sec
 	sub	x0, x0, x1	// _12, end.tv_sec, start.tv_sec
-// demos/heap_vs_stack_fairness.c:46:            (end.tv_nsec - start.tv_nsec);
 	ldr	x1, [sp, 32]	// end.tv_nsec, end.tv_nsec
 	sub	x1, x1, x2	// _17, end.tv_nsec, start.tv_nsec
-// demos/heap_vs_stack_fairness.c:45:     return (end.tv_sec - start.tv_sec) * 1000000000ULL +
 	mov	x2, 51712	// tmp142,
 	movk	x2, 0x3b9a, lsl 16	// tmp142,,
 	madd	x0, x0, x2, x1	// <retval>, _12, tmp142, _17
-// demos/heap_vs_stack_fairness.c:47: }
+// } — SSP 尾声：比较 [sp,#1064] 与当前 guard
 	adrp	x1, :got:__stack_chk_guard	// tmp147,
 	ldr	x1, [x1, :got_lo12:__stack_chk_guard]	// tmp147,
 	ldr	x3, [sp, 1064]	// tmp150, D.5489
@@ -122,7 +113,7 @@ test1_stack_small_object:
 	.size	test1_stack_small_object, .-test1_stack_small_object
 	.align	2
 	.p2align 5,,15
-/* 【场景3-栈】test3_stack_medium_object：256KB 局部区（大 sub sp），仅 100 次迭代。 */
+/* test3_stack_medium_object：256KB 栈对象，100 次 */
 	.global	test3_stack_medium_object
 	.type	test3_stack_medium_object, %function
 test3_stack_medium_object:
@@ -139,67 +130,48 @@ test3_stack_medium_object:
 	.cfi_def_cfa_offset 64
 	sub	sp, sp, #262144	//,,
 	.cfi_def_cfa_offset 262208
-// demos/heap_vs_stack_fairness.c:128: uint64_t test3_stack_medium_object() {
+// test3_stack_medium_object() { — 大栈帧；SSP 副本 [sp+262144+40]；clock_gettime(start)；x3→g_sum；for i=0..99
 	add	x1, sp, 262144	// tmp149,,
 	ldr	x2, [x0]	// tmp144,
 	str	x2, [x1, 40]	// tmp144, D.5503
 	mov	x2, 0	// tmp144
-// demos/heap_vs_stack_fairness.c:130:     clock_gettime(CLOCK_MONOTONIC, &start);
 	add	x1, sp, 8	//,,
 	mov	w0, 1	//,
 	bl	clock_gettime		//
 	adrp	x3, .LANCHOR0	// tmp143,
-// demos/heap_vs_stack_fairness.c:140:         g_sum += p[0] + p[MEDIUM_SIZE-1];
 	add	x3, x3, :lo12:.LANCHOR0	// tmp127, tmp143,
-// demos/heap_vs_stack_fairness.c:134:     for (int i = 0; i < 100; i++) {  // 只100次，避免栈压力
 	mov	w1, 0	// i,
 	.p2align 5,,15
 .L9:
-// demos/heap_vs_stack_fairness.c:139:         p[MEDIUM_SIZE-1] = (i >> 8) & 0xFF;
+	// .L9：写 p[0]/末字节、i++、g_sum += p[0]+p[262143]；cmp i,100
 	add	x0, sp, 262144	// tmp152,,
-// demos/heap_vs_stack_fairness.c:140:         g_sum += p[0] + p[MEDIUM_SIZE-1];
 	add	x2, sp, 262144	// tmp154,,
-// demos/heap_vs_stack_fairness.c:138:         p[0] = i & 0xFF;
 	strb	w1, [sp, 40]	// _110, MEM[(volatile char *)&buffer]
-// demos/heap_vs_stack_fairness.c:134:     for (int i = 0; i < 100; i++) {  // 只100次，避免栈压力
 	add	w1, w1, 1	// i, i,
-// demos/heap_vs_stack_fairness.c:139:         p[MEDIUM_SIZE-1] = (i >> 8) & 0xFF;
 	strb	wzr, [x0, 39]	//, MEM[(volatile char *)&buffer + 262143B]
-// demos/heap_vs_stack_fairness.c:140:         g_sum += p[0] + p[MEDIUM_SIZE-1];
 	ldrb	w0, [sp, 40]	//, MEM[(volatile char *)&buffer]
-// demos/heap_vs_stack_fairness.c:140:         g_sum += p[0] + p[MEDIUM_SIZE-1];
 	ldrb	w2, [x2, 39]	//, MEM[(volatile char *)&buffer + 262143B]
-// demos/heap_vs_stack_fairness.c:140:         g_sum += p[0] + p[MEDIUM_SIZE-1];
 	ldr	w4, [x3]	//, g_sum
-// demos/heap_vs_stack_fairness.c:140:         g_sum += p[0] + p[MEDIUM_SIZE-1];
 	and	w2, w2, 255	// _4, MEM[(volatile char *)&buffer + 262143B]
-// demos/heap_vs_stack_fairness.c:140:         g_sum += p[0] + p[MEDIUM_SIZE-1];
 	add	w0, w2, w0, uxtb	// _27, _4, MEM[(volatile char *)&buffer]
-// demos/heap_vs_stack_fairness.c:140:         g_sum += p[0] + p[MEDIUM_SIZE-1];
 	add	w0, w0, w4	// _7, _27, g_sum.4_6
 	str	w0, [x3]	// _7, g_sum
-// demos/heap_vs_stack_fairness.c:134:     for (int i = 0; i < 100; i++) {  // 只100次，避免栈压力
 	cmp	w1, 100	// i,
 	bne	.L9		//,
-// demos/heap_vs_stack_fairness.c:143:     clock_gettime(CLOCK_MONOTONIC, &end);
+// clock_gettime(end)；return ns；add x3 指向大帧顶以便读 SSP 副本
 	add	x1, sp, 24	//,,
 	mov	w0, 1	//,
 	bl	clock_gettime		//
-// demos/heap_vs_stack_fairness.c:146:            (end.tv_nsec - start.tv_nsec);
 	ldp	x1, x2, [sp, 8]	// start.tv_sec, start.tv_nsec,
-// demos/heap_vs_stack_fairness.c:147: }
 	add	x3, sp, 262144	// tmp156,,
-// demos/heap_vs_stack_fairness.c:145:     return (end.tv_sec - start.tv_sec) * 1000000000ULL +
 	ldr	x0, [sp, 24]	// end.tv_sec, end.tv_sec
 	sub	x0, x0, x1	// _10, end.tv_sec, start.tv_sec
-// demos/heap_vs_stack_fairness.c:146:            (end.tv_nsec - start.tv_nsec);
 	ldr	x1, [sp, 32]	// end.tv_nsec, end.tv_nsec
 	sub	x1, x1, x2	// _15, end.tv_nsec, start.tv_nsec
-// demos/heap_vs_stack_fairness.c:145:     return (end.tv_sec - start.tv_sec) * 1000000000ULL +
 	mov	x2, 51712	// tmp137,
 	movk	x2, 0x3b9a, lsl 16	// tmp137,,
 	madd	x0, x0, x2, x1	// <retval>, _10, tmp137, _15
-// demos/heap_vs_stack_fairness.c:147: }
+// } — SSP 尾声
 	adrp	x1, :got:__stack_chk_guard	// tmp142,
 	ldr	x1, [x1, :got_lo12:__stack_chk_guard]	// tmp142,
 	ldr	x4, [x3, 40]	// tmp145, D.5503
@@ -225,7 +197,7 @@ test3_stack_medium_object:
 	.size	test3_stack_medium_object, .-test3_stack_medium_object
 	.align	2
 	.p2align 5,,15
-/* 【场景1-堆】test1_heap_small_object：每轮 bl malloc / bl free（内核 mmap/munmap 压力）。 */
+/* test1_heap_small_object：每轮 malloc+free */
 	.global	test1_heap_small_object
 	.type	test1_heap_small_object, %function
 test1_heap_small_object:
@@ -243,72 +215,51 @@ test1_heap_small_object:
 	.cfi_offset 19, -32
 	.cfi_offset 20, -24
 	adrp	x20, .LANCHOR0	// tmp149,
-// demos/heap_vs_stack_fairness.c:60:         g_sum += p[0] + p[SMALL_SIZE-1];
 	add	x20, x20, :lo12:.LANCHOR0	// tmp132, tmp149,
-// demos/heap_vs_stack_fairness.c:49: uint64_t test1_heap_small_object() {
+// test1_heap_small_object() { — SSP [sp,#40]；x20→g_sum；w21=ITERATIONS；clock_gettime(start)
 	str	x21, [sp, 80]	//,
 	.cfi_offset 21, -16
-// demos/heap_vs_stack_fairness.c:53:     for (int i = 0; i < ITERATIONS; i++) {
 	mov	w21, 16960	// tmp137,
-// demos/heap_vs_stack_fairness.c:53:     for (int i = 0; i < ITERATIONS; i++) {
 	mov	w19, 0	// i,
-// demos/heap_vs_stack_fairness.c:53:     for (int i = 0; i < ITERATIONS; i++) {
 	movk	w21, 0xf, lsl 16	// tmp137,,
-// demos/heap_vs_stack_fairness.c:49: uint64_t test1_heap_small_object() {
 	ldr	x1, [x0]	// tmp152,
 	str	x1, [sp, 40]	// tmp152, D.5517
 	mov	x1, 0	// tmp152
-// demos/heap_vs_stack_fairness.c:51:     clock_gettime(CLOCK_MONOTONIC, &start);
 	mov	w0, 1	//,
 	add	x1, sp, 8	//,,
 	bl	clock_gettime		//
 	.p2align 5,,15
 .L15:
-// demos/heap_vs_stack_fairness.c:54:         char *buffer = malloc(SMALL_SIZE);
+	// .L15：malloc(1KB)；写两端；i++；g_sum += …；free；直到 i==1_000_000
 	mov	x0, 1024	//,
 	bl	malloc		//
-// demos/heap_vs_stack_fairness.c:58:         p[0] = i & 0xFF;
 	strb	w19, [x0]	// _130, MEM[(volatile char *)buffer_28]
-// demos/heap_vs_stack_fairness.c:59:         p[SMALL_SIZE-1] = (i >> 8) & 0xFF;
 	asr	w2, w19, 8	// _3, i,
 	strb	w2, [x0, 1023]	// _3, MEM[(volatile char *)buffer_28 + 1023B]
-// demos/heap_vs_stack_fairness.c:53:     for (int i = 0; i < ITERATIONS; i++) {
 	add	w19, w19, 1	// i, i,
-// demos/heap_vs_stack_fairness.c:60:         g_sum += p[0] + p[SMALL_SIZE-1];
 	ldrb	w2, [x0]	//, MEM[(volatile char *)buffer_28]
-// demos/heap_vs_stack_fairness.c:60:         g_sum += p[0] + p[SMALL_SIZE-1];
 	ldrb	w1, [x0, 1023]	//, MEM[(volatile char *)buffer_28 + 1023B]
-// demos/heap_vs_stack_fairness.c:60:         g_sum += p[0] + p[SMALL_SIZE-1];
 	ldr	w3, [x20]	//, g_sum
-// demos/heap_vs_stack_fairness.c:60:         g_sum += p[0] + p[SMALL_SIZE-1];
 	and	w1, w1, 255	// _6, MEM[(volatile char *)buffer_28 + 1023B]
-// demos/heap_vs_stack_fairness.c:60:         g_sum += p[0] + p[SMALL_SIZE-1];
 	add	w1, w1, w2, uxtb	// _31, _6, MEM[(volatile char *)buffer_28]
-// demos/heap_vs_stack_fairness.c:60:         g_sum += p[0] + p[SMALL_SIZE-1];
 	add	w1, w1, w3	// _9, _31, g_sum.1_8
 	str	w1, [x20]	// _9, g_sum
-// demos/heap_vs_stack_fairness.c:62:         free(buffer);
 	bl	free		//
-// demos/heap_vs_stack_fairness.c:53:     for (int i = 0; i < ITERATIONS; i++) {
 	cmp	w19, w21	// i, tmp137
 	bne	.L15		//,
-// demos/heap_vs_stack_fairness.c:65:     clock_gettime(CLOCK_MONOTONIC, &end);
+// clock_gettime(end)；return ns
 	add	x1, sp, 24	//,,
 	mov	w0, 1	//,
 	bl	clock_gettime		//
-// demos/heap_vs_stack_fairness.c:67:            (end.tv_nsec - start.tv_nsec);
 	ldp	x1, x2, [sp, 8]	// start.tv_sec, start.tv_nsec,
-// demos/heap_vs_stack_fairness.c:66:     return (end.tv_sec - start.tv_sec) * 1000000000ULL +
 	ldr	x0, [sp, 24]	// end.tv_sec, end.tv_sec
 	sub	x0, x0, x1	// _12, end.tv_sec, start.tv_sec
-// demos/heap_vs_stack_fairness.c:67:            (end.tv_nsec - start.tv_nsec);
 	ldr	x1, [sp, 32]	// end.tv_nsec, end.tv_nsec
 	sub	x1, x1, x2	// _17, end.tv_nsec, start.tv_nsec
-// demos/heap_vs_stack_fairness.c:66:     return (end.tv_sec - start.tv_sec) * 1000000000ULL +
 	mov	x2, 51712	// tmp143,
 	movk	x2, 0x3b9a, lsl 16	// tmp143,,
 	madd	x0, x0, x2, x1	// <retval>, _12, tmp143, _17
-// demos/heap_vs_stack_fairness.c:68: }
+// } — SSP 尾声
 	adrp	x1, :got:__stack_chk_guard	// tmp148,
 	ldr	x1, [x1, :got_lo12:__stack_chk_guard]	// tmp148,
 	ldr	x3, [sp, 40]	// tmp153, D.5517
@@ -336,11 +287,7 @@ test1_heap_small_object:
 	.size	test1_heap_small_object, .-test1_heap_small_object
 	.align	2
 	.p2align 5,,15
-/* 【场景2-堆】test2_heap_reuse：
- * 【边界】bl malloc、第一次 bl clock_gettime 在热循环 .L21 之前；
- *         第二次 clock_gettime 之后才是 bl free（计时区间不含 malloc/free）。
- * 【热循环 .L21】x19=堆指针，str/ldr [x19] 与 [x19,#1023]；无 bl 子函数。
- */
+/* 场景2-堆复用：test2_heap_reuse — malloc 与 clock_gettime(start) 在 .L21 前；计时段仅 .L21；free 在计时后；x19=buffer */
 	.global	test2_heap_reuse
 	.type	test2_heap_reuse, %function
 test2_heap_reuse:
@@ -356,73 +303,53 @@ test2_heap_reuse:
 	add	x29, sp, 48	//,,
 	str	x19, [sp, 64]	//,
 	.cfi_offset 19, -16
-// demos/heap_vs_stack_fairness.c:98: uint64_t test2_heap_reuse() {
+// test2_heap_reuse() { — SSP 副本 [sp,#40]；buffer = malloc(1024)；clock_gettime(start)
 	ldr	x1, [x0]	// tmp151,
 	str	x1, [sp, 40]	// tmp151, D.5531
 	mov	x1, 0	// tmp151
-// demos/heap_vs_stack_fairness.c:102:     char *buffer = malloc(SMALL_SIZE);
 	mov	x0, 1024	//,
 	bl	malloc		//
 	mov	x19, x0	// buffer, buffer
-// demos/heap_vs_stack_fairness.c:104:     clock_gettime(CLOCK_MONOTONIC, &start);
 	add	x1, sp, 8	//,,
 	mov	w0, 1	//,
 	bl	clock_gettime		//
+// for (i=0; i<ITERATIONS; i++) — w5=1_000_000，x3→g_sum，w2=i
 	adrp	x3, .LANCHOR0	// tmp149,
-// demos/heap_vs_stack_fairness.c:106:     for (int i = 0; i < ITERATIONS; i++) {
 	mov	w5, 16960	// tmp137,
-// demos/heap_vs_stack_fairness.c:111:         g_sum += p[0] + p[SMALL_SIZE-1];
 	add	x3, x3, :lo12:.LANCHOR0	// tmp132, tmp149,
-// demos/heap_vs_stack_fairness.c:106:     for (int i = 0; i < ITERATIONS; i++) {
 	mov	w2, 0	// i,
-// demos/heap_vs_stack_fairness.c:106:     for (int i = 0; i < ITERATIONS; i++) {
 	movk	w5, 0xf, lsl 16	// tmp137,,
 	.p2align 5,,15
-/* 【热循环 .L21】场景2-堆复用：计时核心；x19 为 malloc 得到的指针。 */
 .L21:
-// demos/heap_vs_stack_fairness.c:109:         p[0] = i & 0xFF;
+	// 与 test1 热循环同语义；buffer 基址在 x19（堆），无每轮 bl
 	strb	w2, [x19]	// _130, MEM[(volatile char *)buffer_23]
-// demos/heap_vs_stack_fairness.c:110:         p[SMALL_SIZE-1] = (i >> 8) & 0xFF;
 	asr	w0, w2, 8	// _3, i,
 	strb	w0, [x19, 1023]	// _3, MEM[(volatile char *)buffer_23 + 1023B]
-// demos/heap_vs_stack_fairness.c:106:     for (int i = 0; i < ITERATIONS; i++) {
 	add	w2, w2, 1	// i, i,
-// demos/heap_vs_stack_fairness.c:111:         g_sum += p[0] + p[SMALL_SIZE-1];
 	ldrb	w1, [x19]	//, MEM[(volatile char *)buffer_23]
-// demos/heap_vs_stack_fairness.c:111:         g_sum += p[0] + p[SMALL_SIZE-1];
 	ldrb	w0, [x19, 1023]	//, MEM[(volatile char *)buffer_23 + 1023B]
-// demos/heap_vs_stack_fairness.c:111:         g_sum += p[0] + p[SMALL_SIZE-1];
 	ldr	w4, [x3]	//, g_sum
-// demos/heap_vs_stack_fairness.c:111:         g_sum += p[0] + p[SMALL_SIZE-1];
 	and	w0, w0, 255	// _6, MEM[(volatile char *)buffer_23 + 1023B]
-// demos/heap_vs_stack_fairness.c:111:         g_sum += p[0] + p[SMALL_SIZE-1];
 	add	w1, w0, w1, uxtb	// _32, _6, MEM[(volatile char *)buffer_23]
-// demos/heap_vs_stack_fairness.c:111:         g_sum += p[0] + p[SMALL_SIZE-1];
 	add	w1, w1, w4	// _9, _32, g_sum.3_8
 	str	w1, [x3]	// _9, g_sum
-// demos/heap_vs_stack_fairness.c:106:     for (int i = 0; i < ITERATIONS; i++) {
 	cmp	w2, w5	// i, tmp137
 	bne	.L21		//,
-// demos/heap_vs_stack_fairness.c:114:     clock_gettime(CLOCK_MONOTONIC, &end);
+// clock_gettime(end)；free(buffer)；return ns
 	add	x1, sp, 24	//,,
 	mov	w0, 1	//,
 	bl	clock_gettime		//
-// demos/heap_vs_stack_fairness.c:116:     free(buffer);
 	mov	x0, x19	//, buffer
 	bl	free		//
-// demos/heap_vs_stack_fairness.c:119:            (end.tv_nsec - start.tv_nsec);
 	ldp	x1, x2, [sp, 8]	// start.tv_sec, start.tv_nsec,
-// demos/heap_vs_stack_fairness.c:118:     return (end.tv_sec - start.tv_sec) * 1000000000ULL +
 	ldr	x0, [sp, 24]	// end.tv_sec, end.tv_sec
 	sub	x0, x0, x1	// _12, end.tv_sec, start.tv_sec
-// demos/heap_vs_stack_fairness.c:119:            (end.tv_nsec - start.tv_nsec);
 	ldr	x1, [sp, 32]	// end.tv_nsec, end.tv_nsec
 	sub	x1, x1, x2	// _17, end.tv_nsec, start.tv_nsec
-// demos/heap_vs_stack_fairness.c:118:     return (end.tv_sec - start.tv_sec) * 1000000000ULL +
 	mov	x2, 51712	// tmp143,
 	movk	x2, 0x3b9a, lsl 16	// tmp143,,
 	madd	x0, x0, x2, x1	// <retval>, _12, tmp143, _17
-// demos/heap_vs_stack_fairness.c:120: }
+// } — SSP 尾声
 	adrp	x1, :got:__stack_chk_guard	// tmp148,
 	ldr	x1, [x1, :got_lo12:__stack_chk_guard]	// tmp148,
 	ldr	x3, [sp, 40]	// tmp152, D.5531
@@ -447,7 +374,7 @@ test2_heap_reuse:
 	.size	test2_heap_reuse, .-test2_heap_reuse
 	.align	2
 	.p2align 5,,15
-/* 【场景3-堆】test3_heap_large_object：每轮 1MB malloc + 使用 + free。 */
+/* test3_heap_large_object：每轮 1MB malloc+free */
 	.global	test3_heap_large_object
 	.type	test3_heap_large_object, %function
 test3_heap_large_object:
@@ -464,70 +391,50 @@ test3_heap_large_object:
 	stp	x19, x20, [sp, 64]	//,,
 	.cfi_offset 19, -16
 	.cfi_offset 20, -8
-// demos/heap_vs_stack_fairness.c:161:             g_sum += p[0] + p[LARGE_SIZE-1];
+// test3_heap_large_object() { — SSP [sp,#40]；x20→g_sum；clock_gettime(start)；for i=0..99
 	adrp	x20, .LANCHOR0	// tmp147,
 	add	x20, x20, :lo12:.LANCHOR0	// tmp148, tmp147,
-// demos/heap_vs_stack_fairness.c:154:     for (int i = 0; i < 100; i++) {
 	mov	w19, 0	// i,
-// demos/heap_vs_stack_fairness.c:150: uint64_t test3_heap_large_object() {
 	ldr	x1, [x0]	// tmp150,
 	str	x1, [sp, 40]	// tmp150, D.5545
 	mov	x1, 0	// tmp150
-// demos/heap_vs_stack_fairness.c:152:     clock_gettime(CLOCK_MONOTONIC, &start);
 	add	x1, sp, 8	//,,
 	mov	w0, 1	//,
 	bl	clock_gettime		//
 	.p2align 5,,15
 .L28:
-// demos/heap_vs_stack_fairness.c:155:         char *buffer = malloc(LARGE_SIZE);  // 1MB，没问题
+	// .L28：malloc(1MB)；若非空则写首尾、g_sum += …、free；.L27：仅 i++
 	mov	x0, 1048576	//,
 	bl	malloc		//
-// demos/heap_vs_stack_fairness.c:156:         if (buffer) {
 	cbz	x0, .L27	// tmp123,
-// demos/heap_vs_stack_fairness.c:160:             p[LARGE_SIZE-1] = (i >> 8) & 0xFF;
 	add	x2, x0, 1044480	// tmp125, tmp123,
-// demos/heap_vs_stack_fairness.c:159:             p[0] = i & 0xFF;
 	strb	w19, [x0]	// _113, MEM[(volatile char *)buffer_27]
-// demos/heap_vs_stack_fairness.c:160:             p[LARGE_SIZE-1] = (i >> 8) & 0xFF;
 	strb	wzr, [x2, 4095]	//, MEM[(volatile char *)buffer_27 + 1048575B]
-// demos/heap_vs_stack_fairness.c:161:             g_sum += p[0] + p[LARGE_SIZE-1];
 	ldrb	w1, [x0]	//, MEM[(volatile char *)buffer_27]
-// demos/heap_vs_stack_fairness.c:161:             g_sum += p[0] + p[LARGE_SIZE-1];
 	ldrb	w2, [x2, 4095]	//, MEM[(volatile char *)buffer_27 + 1048575B]
-// demos/heap_vs_stack_fairness.c:161:             g_sum += p[0] + p[LARGE_SIZE-1];
 	ldr	w3, [x20]	//, g_sum
-// demos/heap_vs_stack_fairness.c:161:             g_sum += p[0] + p[LARGE_SIZE-1];
 	and	w2, w2, 255	// _4, MEM[(volatile char *)buffer_27 + 1048575B]
-// demos/heap_vs_stack_fairness.c:161:             g_sum += p[0] + p[LARGE_SIZE-1];
 	add	w1, w2, w1, uxtb	// _30, _4, MEM[(volatile char *)buffer_27]
-// demos/heap_vs_stack_fairness.c:161:             g_sum += p[0] + p[LARGE_SIZE-1];
 	add	w1, w1, w3	// _7, _30, g_sum.5_6
 	str	w1, [x20]	// _7, g_sum
-// demos/heap_vs_stack_fairness.c:163:             free(buffer);
 	bl	free		//
 .L27:
-// demos/heap_vs_stack_fairness.c:154:     for (int i = 0; i < 100; i++) {
 	add	w19, w19, 1	// i, i,
-// demos/heap_vs_stack_fairness.c:154:     for (int i = 0; i < 100; i++) {
 	cmp	w19, 100	// i,
 	bne	.L28		//,
-// demos/heap_vs_stack_fairness.c:167:     clock_gettime(CLOCK_MONOTONIC, &end);
+// clock_gettime(end)；return ns
 	add	x1, sp, 24	//,,
 	mov	w0, 1	//,
 	bl	clock_gettime		//
-// demos/heap_vs_stack_fairness.c:169:            (end.tv_nsec - start.tv_nsec);
 	ldp	x1, x2, [sp, 8]	// start.tv_sec, start.tv_nsec,
-// demos/heap_vs_stack_fairness.c:168:     return (end.tv_sec - start.tv_sec) * 1000000000ULL +
 	ldr	x0, [sp, 24]	// end.tv_sec, end.tv_sec
 	sub	x0, x0, x1	// _10, end.tv_sec, start.tv_sec
-// demos/heap_vs_stack_fairness.c:169:            (end.tv_nsec - start.tv_nsec);
 	ldr	x1, [sp, 32]	// end.tv_nsec, end.tv_nsec
 	sub	x1, x1, x2	// _15, end.tv_nsec, start.tv_nsec
-// demos/heap_vs_stack_fairness.c:168:     return (end.tv_sec - start.tv_sec) * 1000000000ULL +
 	mov	x2, 51712	// tmp140,
 	movk	x2, 0x3b9a, lsl 16	// tmp140,,
 	madd	x0, x0, x2, x1	// <retval>, _10, tmp140, _15
-// demos/heap_vs_stack_fairness.c:170: }
+// } — SSP 尾声
 	adrp	x1, :got:__stack_chk_guard	// tmp145,
 	ldr	x1, [x1, :got_lo12:__stack_chk_guard]	// tmp145,
 	ldr	x3, [sp, 40]	// tmp151, D.5545
@@ -553,7 +460,7 @@ test3_heap_large_object:
 	.size	test3_heap_large_object, .-test3_heap_large_object
 	.align	2
 	.p2align 5,,15
-/* 【场景4-堆】test4_heap_with_pool：计时前 pool_create；热循环内 bl pool_alloc。 */
+/* 场景4：test4_heap_with_pool — 内联 pool 初始化；计时段含 .L38（每轮 pool_alloc 内联 + 与场景1 同构热循环） */
 	.global	test4_heap_with_pool
 	.type	test4_heap_with_pool, %function
 test4_heap_with_pool:
@@ -569,110 +476,74 @@ test4_heap_with_pool:
 	add	x29, sp, 48	//,,
 	str	x19, [sp, 64]	//,
 	.cfi_offset 19, -16
-// demos/heap_vs_stack_fairness.c:207: uint64_t test4_heap_with_pool() {
+// test4_heap_with_pool() { — SSP 副本 [sp,#40]；内联构造 pool（malloc×2、填字段）；clock_gettime(start)
 	ldr	x1, [x0]	// tmp171,
 	str	x1, [sp, 40]	// tmp171, D.5569
 	mov	x1, 0	// tmp171
-// demos/heap_vs_stack_fairness.c:185:     MemoryPool *pool = malloc(sizeof(MemoryPool));
 	mov	x0, 32	//,
 	bl	malloc		//
 	mov	x19, x0	// pool, pool
-// demos/heap_vs_stack_fairness.c:186:     pool->memory = malloc(block_size * num_blocks);
 	mov	x0, 40960	//,
 	movk	x0, 0xf, lsl 16	//,,
 	bl	malloc		//
-// demos/heap_vs_stack_fairness.c:186:     pool->memory = malloc(block_size * num_blocks);
 	str	x0, [x19]	// tmp170, pool_46->memory
-// demos/heap_vs_stack_fairness.c:187:     pool->block_size = block_size;
 	adrp	x0, .LC0	// tmp176,
-// demos/heap_vs_stack_fairness.c:189:     pool->next_free = 0;
 	str	xzr, [x19, 24]	//, pool_46->next_free
-// demos/heap_vs_stack_fairness.c:213:     clock_gettime(CLOCK_MONOTONIC, &start);
 	add	x1, sp, 8	//,,
-// demos/heap_vs_stack_fairness.c:187:     pool->block_size = block_size;
 	ldr	q31, [x0, #:lo12:.LC0]	// tmp136,
-// demos/heap_vs_stack_fairness.c:213:     clock_gettime(CLOCK_MONOTONIC, &start);
 	mov	w0, 1	//,
-// demos/heap_vs_stack_fairness.c:187:     pool->block_size = block_size;
 	str	q31, [x19, 8]	// tmp136, MEM <vector(2) long unsigned int> [(long unsigned int *)pool_46 + 8B]
-// demos/heap_vs_stack_fairness.c:213:     clock_gettime(CLOCK_MONOTONIC, &start);
 	bl	clock_gettime		//
+// for (i=0; i<ITERATIONS; i++) — w6=1_000_000，x4→g_sum，w0=i
 	adrp	x4, .LANCHOR0	// tmp166,
-// demos/heap_vs_stack_fairness.c:215:     for (int i = 0; i < ITERATIONS; i++) {
 	mov	w6, 16960	// tmp153,
-// demos/heap_vs_stack_fairness.c:221:         g_sum += p[0] + p[SMALL_SIZE-1];
 	add	x4, x4, :lo12:.LANCHOR0	// tmp148, tmp166,
-// demos/heap_vs_stack_fairness.c:215:     for (int i = 0; i < ITERATIONS; i++) {
 	mov	w0, 0	// i,
-// demos/heap_vs_stack_fairness.c:215:     for (int i = 0; i < ITERATIONS; i++) {
 	movk	w6, 0xf, lsl 16	// tmp153,,
 	.p2align 5,,15
 .L38:
-// demos/heap_vs_stack_fairness.c:194:     if (pool->next_free >= pool->total_blocks) {
+	// 每轮：pool_alloc 内联（next_free 回绕、算 ptr）→ 写 p[0]/p[1023] → i++ → g_sum → 循环
 	ldp	x2, x1, [x19, 16]	// pool_46->total_blocks, _42,
-// demos/heap_vs_stack_fairness.c:198:     pool->next_free++;
 	add	x5, x1, 1	// _63, _42,
-// demos/heap_vs_stack_fairness.c:194:     if (pool->next_free >= pool->total_blocks) {
 	cmp	x1, x2	// _42, pool_46->total_blocks
 	bcc	.L37		//,
 	mov	x5, 1	// _63,
 	mov	x1, 0	// _42,
 .L37:
-// demos/heap_vs_stack_fairness.c:197:     void *ptr = pool->memory + (pool->next_free * pool->block_size);
 	ldp	x2, x3, [x19]	// pool_46->memory, pool_46->block_size,* pool
-// demos/heap_vs_stack_fairness.c:198:     pool->next_free++;
 	str	x5, [x19, 24]	// _63, pool_46->next_free
-// demos/heap_vs_stack_fairness.c:220:         p[SMALL_SIZE-1] = (i >> 8) & 0xFF;
 	asr	w5, w0, 8	// _74, i,
-// demos/heap_vs_stack_fairness.c:197:     void *ptr = pool->memory + (pool->next_free * pool->block_size);
 	mul	x1, x1, x3	// _68, _42, pool_46->block_size
-// demos/heap_vs_stack_fairness.c:197:     void *ptr = pool->memory + (pool->next_free * pool->block_size);
 	add	x3, x2, x1	// ptr, pool_46->memory, _68
-// demos/heap_vs_stack_fairness.c:219:         p[0] = i & 0xFF;
 	strb	w0, [x2, x1]	// _7, MEM[(volatile char *)ptr_69]
-// demos/heap_vs_stack_fairness.c:215:     for (int i = 0; i < ITERATIONS; i++) {
 	add	w0, w0, 1	// i, i,
-// demos/heap_vs_stack_fairness.c:220:         p[SMALL_SIZE-1] = (i >> 8) & 0xFF;
 	strb	w5, [x3, 1023]	// _74, MEM[(volatile char *)ptr_69 + 1023B]
-// demos/heap_vs_stack_fairness.c:221:         g_sum += p[0] + p[SMALL_SIZE-1];
 	ldrb	w1, [x2, x1]	//, MEM[(volatile char *)ptr_69]
-// demos/heap_vs_stack_fairness.c:221:         g_sum += p[0] + p[SMALL_SIZE-1];
 	ldrb	w2, [x3, 1023]	//, MEM[(volatile char *)ptr_69 + 1023B]
-// demos/heap_vs_stack_fairness.c:221:         g_sum += p[0] + p[SMALL_SIZE-1];
 	ldr	w3, [x4]	//, g_sum
-// demos/heap_vs_stack_fairness.c:221:         g_sum += p[0] + p[SMALL_SIZE-1];
 	and	w2, w2, 255	// _78, MEM[(volatile char *)ptr_69 + 1023B]
-// demos/heap_vs_stack_fairness.c:221:         g_sum += p[0] + p[SMALL_SIZE-1];
 	add	w1, w2, w1, uxtb	// _80, _78, MEM[(volatile char *)ptr_69]
-// demos/heap_vs_stack_fairness.c:221:         g_sum += p[0] + p[SMALL_SIZE-1];
 	add	w1, w1, w3	// _82, _80, g_sum.6_81
 	str	w1, [x4]	// _82, g_sum
-// demos/heap_vs_stack_fairness.c:215:     for (int i = 0; i < ITERATIONS; i++) {
 	cmp	w0, w6	// i, tmp153
 	bne	.L38		//,
-// demos/heap_vs_stack_fairness.c:226:     clock_gettime(CLOCK_MONOTONIC, &end);
+// clock_gettime(end)；pool_destroy 等价（free memory + free pool）；return ns
 	add	x1, sp, 24	//,,
 	mov	w0, 1	//,
 	bl	clock_gettime		//
-// demos/heap_vs_stack_fairness.c:203:     free(pool->memory);
 	ldr	x0, [x19]	//, pool_46->memory
 	bl	free		//
-// demos/heap_vs_stack_fairness.c:204:     free(pool);
 	mov	x0, x19	//, pool
 	bl	free		//
-// demos/heap_vs_stack_fairness.c:231:            (end.tv_nsec - start.tv_nsec);
 	ldp	x1, x2, [sp, 8]	// start.tv_sec, start.tv_nsec,
-// demos/heap_vs_stack_fairness.c:230:     return (end.tv_sec - start.tv_sec) * 1000000000ULL +
 	ldr	x0, [sp, 24]	// end.tv_sec, end.tv_sec
 	sub	x0, x0, x1	// _12, end.tv_sec, start.tv_sec
-// demos/heap_vs_stack_fairness.c:231:            (end.tv_nsec - start.tv_nsec);
 	ldr	x1, [sp, 32]	// end.tv_nsec, end.tv_nsec
 	sub	x1, x1, x2	// _17, end.tv_nsec, start.tv_nsec
-// demos/heap_vs_stack_fairness.c:230:     return (end.tv_sec - start.tv_sec) * 1000000000ULL +
 	mov	x2, 51712	// tmp160,
 	movk	x2, 0x3b9a, lsl 16	// tmp160,,
 	madd	x0, x0, x2, x1	// <retval>, _12, tmp160, _17
-// demos/heap_vs_stack_fairness.c:232: }
+// } — SSP 尾声
 	adrp	x1, :got:__stack_chk_guard	// tmp165,
 	ldr	x1, [x1, :got_lo12:__stack_chk_guard]	// tmp165,
 	ldr	x3, [sp, 40]	// tmp172, D.5569
@@ -698,9 +569,8 @@ test4_heap_with_pool:
 	.align	2
 	.p2align 5,,15
 /* 【场景2-栈-子函数】process_with_stack_buffer：
- * 【栈帧】sub sp,sp,#1040 — 对应 char buffer[1024] + 金丝雀槽。
- * 【栈保护】序言：GOT 取 __stack_chk_guard，副本存 [sp,#1032]；尾声前比较，失败 bl __stack_chk_fail。
- * 每被调用一次执行上述全套（与场景2 外层循环次数相同）。
+ * 【栈帧】sub sp,sp,#1040 — char buffer[1024] + 金丝雀槽（与内核「guard page」无关，见文件头）。
+ * 【SSP】每调一次：序言经 GOT 取 __stack_chk_guard，副本存 [sp,#1032]；尾声 subs 与当前 *guard 比较，失败 bl __stack_chk_fail。
  */
 	.global	process_with_stack_buffer
 	.type	process_with_stack_buffer, %function
@@ -711,46 +581,37 @@ process_with_stack_buffer:
 	.cfi_def_cfa_offset 16
 	.cfi_offset 29, -16
 	.cfi_offset 30, -8
-/* 【guard-步骤1】经 GOT 取 __stack_chk_guard 的地址（变量，不是函数调用）。 */
+/* 【guard-步骤1】adrp/ldr：经 GOT 得到全局 __stack_chk_guard 的地址（数据符号，不是调用 guard）。 */
 	adrp	x1, :got:__stack_chk_guard	// tmp112,
 	ldr	x1, [x1, :got_lo12:__stack_chk_guard]	// tmp112,
 	mov	x29, sp	//,
 	sub	sp, sp, #1040	//,,
 	.cfi_def_cfa_offset 1056
-// demos/heap_vs_stack_fairness.c:75: void process_with_stack_buffer(int value) {
-/* 【guard-步骤2】读取当前 canary 值并保存到当前栈帧槽位 [sp,#1032]。 */
+// void process_with_stack_buffer(int value) {
+/* 【guard-步骤2】ldr x2,[x1]：读当前 canary；str 写入本栈帧槽 [sp,#1032]（返回前要比对的副本）。 */
 	ldr	x2, [x1]	// tmp127,
 	str	x2, [sp, 1032]	// tmp127, D.5573
 	mov	x2, 0	// tmp127
-// demos/heap_vs_stack_fairness.c:81:     g_sum += p[0] + p[SMALL_SIZE-1];
 	adrp	x2, .LANCHOR0	// tmp121,
-// demos/heap_vs_stack_fairness.c:79:     p[0] = value & 0xFF;
 	strb	w0, [sp, 8]	// _1, MEM[(volatile char *)&buffer]
-// demos/heap_vs_stack_fairness.c:80:     p[SMALL_SIZE-1] = (value >> 8) & 0xFF;
 	asr	w0, w0, 8	// _3, value,
 	strb	w0, [sp, 1031]	// _3, MEM[(volatile char *)&buffer + 1023B]
-// demos/heap_vs_stack_fairness.c:81:     g_sum += p[0] + p[SMALL_SIZE-1];
 	ldrb	w0, [sp, 8]	//, MEM[(volatile char *)&buffer]
-// demos/heap_vs_stack_fairness.c:81:     g_sum += p[0] + p[SMALL_SIZE-1];
 	ldrb	w1, [sp, 1031]	//, MEM[(volatile char *)&buffer + 1023B]
-// demos/heap_vs_stack_fairness.c:81:     g_sum += p[0] + p[SMALL_SIZE-1];
 	ldr	w3, [x2, #:lo12:.LANCHOR0]	//, g_sum
-// demos/heap_vs_stack_fairness.c:81:     g_sum += p[0] + p[SMALL_SIZE-1];
 	and	w1, w1, 255	// _6, MEM[(volatile char *)&buffer + 1023B]
-// demos/heap_vs_stack_fairness.c:81:     g_sum += p[0] + p[SMALL_SIZE-1];
 	add	w0, w1, w0, uxtb	// _14, _6, MEM[(volatile char *)&buffer]
-// demos/heap_vs_stack_fairness.c:81:     g_sum += p[0] + p[SMALL_SIZE-1];
 	add	w0, w0, w3	// _9, _14, g_sum.2_8
 	str	w0, [x2, #:lo12:.LANCHOR0]	// _9, g_sum
-// demos/heap_vs_stack_fairness.c:82: }
-/* 【guard-步骤3】函数返回前再取一次 guard，与栈中副本比较。 */
+// }
+/* 【guard-步骤3】再次经 GOT 取 guard，ldr x1,[x0] 得 *guard；与 [sp,#1032] 副本 subs 比较。 */
 	adrp	x0, :got:__stack_chk_guard	// tmp125,
 	ldr	x0, [x0, :got_lo12:__stack_chk_guard]	// tmp125,
 	ldr	x2, [sp, 1032]	// tmp128, D.5573
 	ldr	x1, [x0]	// tmp129,
 	subs	x2, x2, x1	// tmp128, tmp129
 	mov	x1, 0	// tmp129
-/* 【guard-步骤4】不相等说明栈被破坏，进入失败路径。 */
+/* 【guard-步骤4】不相等则金丝雀被破坏 → bne 到失败路径（栈溢出或内存破坏等）。 */
 	bne	.L47		//,
 	add	sp, sp, 1040	//,,
 	.cfi_remember_state
@@ -762,7 +623,7 @@ process_with_stack_buffer:
 	ret	
 .L47:
 	.cfi_restore_state
-/* 【guard-失败处理】调用 musl 的 __stack_chk_fail（实现里是 a_crash）。 */
+/* 【guard-失败】bl __stack_chk_fail@plt（musl 内通常 abort/a_crash）。 */
 	bl	__stack_chk_fail		//
 	.cfi_endproc
 .LFE2:
@@ -770,8 +631,8 @@ process_with_stack_buffer:
 	.align	2
 	.p2align 5,,15
 /* 【场景2-栈-外层】test2_stack_with_function_call：
- * 【热循环 .L49】每轮：mov 参数 w0、add i、bl process_with_stack_buffer — 百万次调用+返回。
- * 计时段从第一次 clock_gettime 后到第二次 clock_gettime，包含全部 bl。
+ * 【热循环 .L49】每轮 bl process_with_stack_buffer（子函数内另有完整 SSP 序列，见上）。
+ * 本函数另有【函数级】金丝雀副本 [sp,#40]，与百万次子函数调用独立。
  */
 	.global	test2_stack_with_function_call
 	.type	test2_stack_with_function_call, %function
@@ -789,51 +650,38 @@ test2_stack_with_function_call:
 	stp	x19, x20, [sp, 64]	//,,
 	.cfi_offset 19, -16
 	.cfi_offset 20, -8
-// demos/heap_vs_stack_fairness.c:88:     for (int i = 0; i < ITERATIONS; i++) {
 	mov	w20, 16960	// tmp114,
-// demos/heap_vs_stack_fairness.c:88:     for (int i = 0; i < ITERATIONS; i++) {
 	mov	w19, 0	// i,
-// demos/heap_vs_stack_fairness.c:88:     for (int i = 0; i < ITERATIONS; i++) {
 	movk	w20, 0xf, lsl 16	// tmp114,,
-// demos/heap_vs_stack_fairness.c:84: uint64_t test2_stack_with_function_call() {
-/* 【函数级 guard】外层函数也保存自己的 canary 副本到 [sp,#40]。 */
+/* 【函数级 guard-入】外层保存 canary 副本到 [sp,#40]（与 process_with_stack_buffer 的 #1032 不同层栈帧）。 */
 	ldr	x1, [x0]	// tmp126,
 	str	x1, [sp, 40]	// tmp126, D.5584
 	mov	x1, 0	// tmp126
-// demos/heap_vs_stack_fairness.c:86:     clock_gettime(CLOCK_MONOTONIC, &start);
 	add	x1, sp, 8	//,,
 	mov	w0, 1	//,
 	bl	clock_gettime		//
 	.p2align 5,,15
-/* 【热循环 .L49】场景2-栈：每轮 bl process_with_stack_buffer（见上方子函数标注）。 */
+/* 【热循环 .L49】百万次 bl/ret + 子函数内 SSP；计时段含全部 bl。 */
 .L49:
-// demos/heap_vs_stack_fairness.c:89:         process_with_stack_buffer(i);  // 每次调用函数
 	mov	w0, w19	//, i
-// demos/heap_vs_stack_fairness.c:88:     for (int i = 0; i < ITERATIONS; i++) {
 	add	w19, w19, 1	// i, i,
-// demos/heap_vs_stack_fairness.c:89:         process_with_stack_buffer(i);  // 每次调用函数
 	bl	process_with_stack_buffer		//
-// demos/heap_vs_stack_fairness.c:88:     for (int i = 0; i < ITERATIONS; i++) {
 	cmp	w19, w20	// i, tmp114
 	bne	.L49		//,
-// demos/heap_vs_stack_fairness.c:92:     clock_gettime(CLOCK_MONOTONIC, &end);
+// clock_gettime(end)；return ns
 	add	x1, sp, 24	//,,
 	mov	w0, 1	//,
 	bl	clock_gettime		//
-// demos/heap_vs_stack_fairness.c:94:            (end.tv_nsec - start.tv_nsec);
 	ldp	x1, x2, [sp, 8]	// start.tv_sec, start.tv_nsec,
-// demos/heap_vs_stack_fairness.c:93:     return (end.tv_sec - start.tv_sec) * 1000000000ULL +
 	ldr	x0, [sp, 24]	// end.tv_sec, end.tv_sec
 	sub	x0, x0, x1	// _3, end.tv_sec, start.tv_sec
-// demos/heap_vs_stack_fairness.c:94:            (end.tv_nsec - start.tv_nsec);
 	ldr	x1, [sp, 32]	// end.tv_nsec, end.tv_nsec
 	sub	x1, x1, x2	// _8, end.tv_nsec, start.tv_nsec
-// demos/heap_vs_stack_fairness.c:93:     return (end.tv_sec - start.tv_sec) * 1000000000ULL +
 	mov	x2, 51712	// tmp120,
 	movk	x2, 0x3b9a, lsl 16	// tmp120,,
 	madd	x0, x0, x2, x1	// <retval>, _3, tmp120, _8
-// demos/heap_vs_stack_fairness.c:95: }
-/* 【函数级 guard 校验】比较 [sp,#40] 与当前 guard，失败走 .L53。 */
+// }
+/* 【函数级 guard-出】比较 [sp,#40] 与当前 *guard；失败 bne .L53。 */
 	adrp	x1, :got:__stack_chk_guard	// tmp125,
 	ldr	x1, [x1, :got_lo12:__stack_chk_guard]	// tmp125,
 	ldr	x3, [sp, 40]	// tmp127, D.5584
@@ -853,14 +701,14 @@ test2_stack_with_function_call:
 	ret	
 .L53:
 	.cfi_restore_state
-/* 【函数级 guard 失败】同样进入 __stack_chk_fail。 */
+/* 【函数级 guard-失败】同 __stack_chk_fail。 */
 	bl	__stack_chk_fail		//
 	.cfi_endproc
 .LFE3:
 	.size	test2_stack_with_function_call, .-test2_stack_with_function_call
 	.align	2
 	.p2align 5,,15
-/* 【内存池】pool_create / pool_alloc / pool_destroy — 场景4 辅助。 */
+/* 场景4：pool_create / pool_alloc / pool_destroy */
 	.global	pool_create
 	.type	pool_create, %function
 pool_create:
@@ -877,22 +725,16 @@ pool_create:
 	mov	x20, x1	// num_blocks, num_blocks
 	str	x21, [sp, 32]	//,
 	.cfi_offset 21, -16
-// demos/heap_vs_stack_fairness.c:184: MemoryPool* pool_create(size_t block_size, size_t num_blocks) {
+// pool_create：两次 malloc（struct + 池内存），填字段
 	mov	x21, x0	// block_size, block_size
-// demos/heap_vs_stack_fairness.c:185:     MemoryPool *pool = malloc(sizeof(MemoryPool));
 	mov	x0, 32	//,
 	bl	malloc		//
 	mov	x19, x0	// tmp106, tmp112
-// demos/heap_vs_stack_fairness.c:186:     pool->memory = malloc(block_size * num_blocks);
 	mul	x0, x21, x20	//, block_size, num_blocks
 	bl	malloc		//
-// demos/heap_vs_stack_fairness.c:186:     pool->memory = malloc(block_size * num_blocks);
 	stp	x0, x21, [x19]	// tmp113, block_size,
-// demos/heap_vs_stack_fairness.c:191: }
 	mov	x0, x19	//, tmp106
-// demos/heap_vs_stack_fairness.c:188:     pool->total_blocks = num_blocks;
 	stp	x20, xzr, [x19, 16]	// num_blocks,,
-// demos/heap_vs_stack_fairness.c:191: }
 	ldr	x21, [sp, 32]	//,
 	ldp	x19, x20, [sp, 16]	//,,
 	ldp	x29, x30, [sp], 48	//,,,
@@ -908,27 +750,22 @@ pool_create:
 	.size	pool_create, .-pool_create
 	.align	2
 	.p2align 5,,15
-/* pool_alloc：O(1) 指针算术（madd），无堆分配 syscall。 */
+/* pool_alloc：next_free 回绕 + madd 算块指针 */
 	.global	pool_alloc
 	.type	pool_alloc, %function
 pool_alloc:
 .LFB8:
 	.cfi_startproc
-// demos/heap_vs_stack_fairness.c:194:     if (pool->next_free >= pool->total_blocks) {
+// pool_alloc 主体
 	ldp	x2, x1, [x0, 16]	// pool_10(D)->total_blocks, _1,
-// demos/heap_vs_stack_fairness.c:198:     pool->next_free++;
 	add	x4, x1, 1	// _18, _1,
-// demos/heap_vs_stack_fairness.c:194:     if (pool->next_free >= pool->total_blocks) {
 	cmp	x1, x2	// _1, pool_10(D)->total_blocks
 	bcc	.L57		//,
 	mov	x4, 1	// _18,
 	mov	x1, 0	// _1,
 .L57:
-// demos/heap_vs_stack_fairness.c:197:     void *ptr = pool->memory + (pool->next_free * pool->block_size);
 	ldp	x2, x3, [x0]	// pool_10(D)->memory, pool_10(D)->block_size,* pool
-// demos/heap_vs_stack_fairness.c:198:     pool->next_free++;
 	str	x4, [x0, 24]	// _18, pool_10(D)->next_free
-// demos/heap_vs_stack_fairness.c:200: }
 	madd	x0, x1, x3, x2	//, _1, pool_10(D)->block_size, pool_10(D)->memory
 	ret	
 	.cfi_endproc
@@ -936,7 +773,7 @@ pool_alloc:
 	.size	pool_alloc, .-pool_alloc
 	.align	2
 	.p2align 5,,15
-/* pool_destroy：bl free 两次（pool->memory 与 pool 本体）。 */
+/* pool_destroy：free(pool->memory)；tail call free(pool) */
 	.global	pool_destroy
 	.type	pool_destroy, %function
 pool_destroy:
@@ -949,21 +786,16 @@ pool_destroy:
 	mov	x29, sp	//,
 	str	x19, [sp, 16]	//,
 	.cfi_offset 19, -16
-// demos/heap_vs_stack_fairness.c:202: void pool_destroy(MemoryPool *pool) {
 	mov	x19, x0	// pool, pool
-// demos/heap_vs_stack_fairness.c:203:     free(pool->memory);
 	ldr	x0, [x0]	//, pool_3(D)->memory
 	bl	free		//
-// demos/heap_vs_stack_fairness.c:204:     free(pool);
 	mov	x0, x19	//, pool
-// demos/heap_vs_stack_fairness.c:205: }
 	ldr	x19, [sp, 16]	//,
 	ldp	x29, x30, [sp], 32	//,,,
 	.cfi_restore 30
 	.cfi_restore 29
 	.cfi_restore 19
 	.cfi_def_cfa_offset 0
-// demos/heap_vs_stack_fairness.c:204:     free(pool);
 	b	free		//
 	.cfi_endproc
 .LFE9:
@@ -975,13 +807,13 @@ pool_destroy:
 	.text
 	.align	2
 	.p2align 5,,15
-/* print_result：浮点除法后 b printf（格式化输出）。 */
+/* print_result：ns/次 与 ms 的浮点除法 → printf */
 	.global	print_result
 	.type	print_result, %function
 print_result:
 .LFB11:
 	.cfi_startproc
-// demos/heap_vs_stack_fairness.c:239:     printf("  %-40s: %8.3f ms (平均 %6.1f ns/次)\n",
+// printf(耗时格式串)
 	ucvtf	d0, x1	// _1, time_ns
 	scvtf	d1, w2	// _3, iterations
 	mov	x1, 145685290680320	// tmp112,
@@ -1021,7 +853,7 @@ print_result:
 	.text
 	.align	2
 	.p2align 5,,15
-/* run_test：通过函数指针 blr 先后调用「栈测试」「堆测试」并打印比例。 */
+/* run_test：blr 调栈/堆测试函数，打印比例 */
 	.global	run_test
 	.type	run_test, %function
 run_test:
@@ -1035,11 +867,10 @@ run_test:
 	str	x21, [sp, 32]	//,
 	.cfi_offset 21, -64
 	mov	x21, x1	// stack_name, stack_name
-// demos/heap_vs_stack_fairness.c:249:     printf("\n%s\n", title);
+// run_test(...) { — 标题行；存 stack_test/heap_test 函数指针；w19=iterations
 	mov	x1, x0	//, title
 	adrp	x0, .LC2	// tmp120,
 	add	x0, x0, :lo12:.LC2	//, tmp120,
-// demos/heap_vs_stack_fairness.c:248:               int iterations) {
 	stp	x19, x20, [sp, 16]	//,,
 	.cfi_offset 19, -80
 	.cfi_offset 20, -72
@@ -1051,18 +882,15 @@ run_test:
 	.cfi_offset 77, -40
 	.cfi_offset 78, -32
 	.cfi_offset 79, -24
-// demos/heap_vs_stack_fairness.c:248:               int iterations) {
 	stp	x4, x2, [sp, 80]	// heap_test, stack_test,
-// demos/heap_vs_stack_fairness.c:249:     printf("\n%s\n", title);
 	bl	printf		//
-// demos/heap_vs_stack_fairness.c:250:     printf("========================================\n");
 	adrp	x0, .LC3	// tmp122,
 	add	x0, x0, :lo12:.LC3	//, tmp122,
 	bl	puts		//
-// demos/heap_vs_stack_fairness.c:252:     uint64_t stack_time = stack_test();
+// stack_time = stack_test()
 	ldr	x2, [sp, 88]	// stack_test, %sfp
 	blr	x2		// stack_test
-// demos/heap_vs_stack_fairness.c:239:     printf("  %-40s: %8.3f ms (平均 %6.1f ns/次)\n",
+// print_result(stack_name, stack_time)
 	ucvtf	d14, x0	// _30, stack_time
 	scvtf	d12, w19	// _32, iterations
 	mov	x0, 145685290680320	// tmp126,
@@ -1074,46 +902,36 @@ run_test:
 	add	x0, x19, :lo12:.LC1	//, tmp128,
 	fdiv	d1, d14, d12	//, _30, _32
 	bl	printf		//
-// demos/heap_vs_stack_fairness.c:255:     uint64_t heap_time = heap_test();
+// heap_time = heap_test()；再 print_result(heap_name, heap_time)
 	ldr	x4, [sp, 80]	// heap_test, %sfp
 	blr	x4		// heap_test
-// demos/heap_vs_stack_fairness.c:239:     printf("  %-40s: %8.3f ms (平均 %6.1f ns/次)\n",
 	ucvtf	d15, x0	// _26, heap_time
 	mov	x1, x20	//, heap_name
 	add	x0, x19, :lo12:.LC1	//, tmp128,
 	fdiv	d0, d15, d13	//, _26, tmp125
 	fdiv	d1, d15, d12	//, _26, _32
 	bl	printf		//
-// demos/heap_vs_stack_fairness.c:258:     double ratio = (double)heap_time / stack_time;
+// ratio = heap/stack；printf 比例；fcmpe ratio 与 1.0、2.0 → .L67 / .L68 / 默认；各支尾 tail-call printf/puts，与恢复 callee-saved 交错
 	fdiv	d15, d15, d14	// ratio, _26, _30
-// demos/heap_vs_stack_fairness.c:259:     printf("  %-40s: %.2fx\n", "堆/栈比例", ratio);
 	adrp	x1, .LC4	// tmp136,
 	adrp	x0, .LC5	// tmp138,
 	add	x1, x1, :lo12:.LC4	//, tmp136,
 	add	x0, x0, :lo12:.LC5	//, tmp138,
 	fmov	d0, d15	//, ratio
 	bl	printf		//
-// demos/heap_vs_stack_fairness.c:261:     if (ratio < 1.0) {
 	fmov	d31, 1.0e+0	// tmp139,
 	fcmpe	d15, d31	// ratio, tmp139
 	bmi	.L67		//,
-// demos/heap_vs_stack_fairness.c:263:     } else if (ratio < 2.0) {
 	fmov	d30, 2.0e+0	// tmp142,
 	fcmpe	d15, d30	// ratio, tmp142
 	bmi	.L68		//,
-// demos/heap_vs_stack_fairness.c:268: }
+	// ratio≥2：printf LC8「栈显著更快…」
 	ldr	x21, [sp, 32]	//,
-// demos/heap_vs_stack_fairness.c:266:         printf("  ✗ 栈显著更快（堆慢 %.1fx）\n", ratio);
 	fmov	d0, d15	//, ratio
-// demos/heap_vs_stack_fairness.c:268: }
 	ldp	x19, x20, [sp, 16]	//,,
-// demos/heap_vs_stack_fairness.c:266:         printf("  ✗ 栈显著更快（堆慢 %.1fx）\n", ratio);
 	adrp	x0, .LC8	// tmp151,
-// demos/heap_vs_stack_fairness.c:268: }
 	ldp	d12, d13, [sp, 48]	//,,
-// demos/heap_vs_stack_fairness.c:266:         printf("  ✗ 栈显著更快（堆慢 %.1fx）\n", ratio);
 	add	x0, x0, :lo12:.LC8	//, tmp151,
-// demos/heap_vs_stack_fairness.c:268: }
 	ldp	d14, d15, [sp, 64]	//,,
 	ldp	x29, x30, [sp], 96	//,,,
 	.cfi_remember_state
@@ -1127,32 +945,21 @@ run_test:
 	.cfi_restore 76
 	.cfi_restore 77
 	.cfi_def_cfa_offset 0
-// demos/heap_vs_stack_fairness.c:266:         printf("  ✗ 栈显著更快（堆慢 %.1fx）\n", ratio);
 	b	printf		//
 	.p2align 2,,3
 .L68:
 	.cfi_restore_state
-// demos/heap_vs_stack_fairness.c:264:         printf("  ⚠️ 堆只慢 %.0f%%，可接受\n", (ratio - 1) * 100);
+	// 1≤ratio<2：printf LC7「堆只慢…%」
 	fsub	d0, d15, d31	// _3, ratio, tmp139
-// demos/heap_vs_stack_fairness.c:264:         printf("  ⚠️ 堆只慢 %.0f%%，可接受\n", (ratio - 1) * 100);
 	mov	x0, 4636737291354636288	// tmp147,
-// demos/heap_vs_stack_fairness.c:268: }
 	ldr	x21, [sp, 32]	//,
-// demos/heap_vs_stack_fairness.c:264:         printf("  ⚠️ 堆只慢 %.0f%%，可接受\n", (ratio - 1) * 100);
 	fmov	d31, x0	// tmp161, tmp147
-// demos/heap_vs_stack_fairness.c:268: }
 	ldp	x19, x20, [sp, 16]	//,,
-// demos/heap_vs_stack_fairness.c:264:         printf("  ⚠️ 堆只慢 %.0f%%，可接受\n", (ratio - 1) * 100);
 	fmul	d0, d0, d31	//, _3, tmp161
-// demos/heap_vs_stack_fairness.c:268: }
 	ldp	d12, d13, [sp, 48]	//,,
-// demos/heap_vs_stack_fairness.c:264:         printf("  ⚠️ 堆只慢 %.0f%%，可接受\n", (ratio - 1) * 100);
 	adrp	x0, .LC7	// tmp149,
-// demos/heap_vs_stack_fairness.c:268: }
 	ldp	d14, d15, [sp, 64]	//,,
-// demos/heap_vs_stack_fairness.c:264:         printf("  ⚠️ 堆只慢 %.0f%%，可接受\n", (ratio - 1) * 100);
 	add	x0, x0, :lo12:.LC7	//, tmp149,
-// demos/heap_vs_stack_fairness.c:268: }
 	ldp	x29, x30, [sp], 96	//,,,
 	.cfi_remember_state
 	.cfi_restore 30
@@ -1165,20 +972,15 @@ run_test:
 	.cfi_restore 76
 	.cfi_restore 77
 	.cfi_def_cfa_offset 0
-// demos/heap_vs_stack_fairness.c:266:         printf("  ✗ 栈显著更快（堆慢 %.1fx）\n", ratio);
 	b	printf		//
 	.p2align 2,,3
 .L67:
 	.cfi_restore_state
-// demos/heap_vs_stack_fairness.c:268: }
+	// ratio<1：puts LC6「堆更快…」
 	ldr	x21, [sp, 32]	//,
-// demos/heap_vs_stack_fairness.c:262:         printf("  ✓ 这个场景堆更快（或接近）\n");
 	adrp	x0, .LC6	// tmp141,
-// demos/heap_vs_stack_fairness.c:268: }
 	ldp	x19, x20, [sp, 16]	//,,
-// demos/heap_vs_stack_fairness.c:262:         printf("  ✓ 这个场景堆更快（或接近）\n");
 	add	x0, x0, :lo12:.LC6	//, tmp141,
-// demos/heap_vs_stack_fairness.c:268: }
 	ldp	d12, d13, [sp, 48]	//,,
 	ldp	d14, d15, [sp, 64]	//,,
 	ldp	x29, x30, [sp], 96	//,,,
@@ -1192,7 +994,6 @@ run_test:
 	.cfi_restore 76
 	.cfi_restore 77
 	.cfi_def_cfa_offset 0
-// demos/heap_vs_stack_fairness.c:262:         printf("  ✓ 这个场景堆更快（或接近）\n");
 	b	puts		//
 	.cfi_endproc
 .LFE12:
@@ -1300,7 +1101,7 @@ run_test:
 	.section	.text.startup,"ax",@progbits
 	.align	2
 	.p2align 5,,15
-/* main：四次 bl run_test；其中第二次 run_test 传入 test2_stack_with_function_call 与 test2_heap_reuse。 */
+/* main：puts 标题与说明 → run_test×4 → puts 结论段落 */
 	.global	main
 	.type	main, %function
 main:
@@ -1314,28 +1115,22 @@ main:
 	stp	x19, x20, [sp, 16]	//,,
 	.cfi_offset 19, -32
 	.cfi_offset 20, -24
-// demos/heap_vs_stack_fairness.c:271:     printf("======================================\n");
+// int main() { — 横幅与说明
 	adrp	x19, .LC9	// tmp103,
 	add	x0, x19, :lo12:.LC9	//, tmp103,
-// demos/heap_vs_stack_fairness.c:270: int main() {
 	str	x21, [sp, 32]	//,
 	.cfi_offset 21, -16
-// demos/heap_vs_stack_fairness.c:271:     printf("======================================\n");
 	bl	puts		//
-// demos/heap_vs_stack_fairness.c:272:     printf("公平的堆 vs 栈性能对比测试\n");
 	adrp	x0, .LC10	// tmp105,
 	add	x0, x0, :lo12:.LC10	//, tmp105,
 	bl	puts		//
-// demos/heap_vs_stack_fairness.c:277:     run_test(
 	adrp	x20, .LC13	// tmp118,
-// demos/heap_vs_stack_fairness.c:273:     printf("======================================\n");
 	add	x0, x19, :lo12:.LC9	//, tmp103,
 	bl	puts		//
-// demos/heap_vs_stack_fairness.c:274:     printf("\n目标：展示各自适合的场景，而非简单的\"谁快用谁\"\n");
 	adrp	x0, .LC11	// tmp109,
 	add	x0, x0, :lo12:.LC11	//, tmp109,
 	bl	puts		//
-// demos/heap_vs_stack_fairness.c:277:     run_test(
+// run_test 场景1
 	adrp	x21, test1_stack_small_object	// tmp116,
 	mov	w5, 16960	//,
 	add	x2, x21, :lo12:test1_stack_small_object	//, tmp116,
@@ -1348,7 +1143,7 @@ main:
 	adrp	x0, .LC14	// tmp120,
 	add	x0, x0, :lo12:.LC14	//, tmp120,
 	bl	run_test		//
-// demos/heap_vs_stack_fairness.c:287:     run_test(
+// run_test 场景2
 	mov	w5, 16960	//,
 	adrp	x4, test2_heap_reuse	// tmp123,
 	movk	w5, 0xf, lsl 16	//,,
@@ -1362,7 +1157,7 @@ main:
 	add	x1, x1, :lo12:.LC16	//, tmp129,
 	add	x0, x0, :lo12:.LC17	//, tmp131,
 	bl	run_test		//
-// demos/heap_vs_stack_fairness.c:297:     run_test(
+// run_test 场景3
 	mov	w5, 100	//,
 	adrp	x4, test3_heap_large_object	// tmp133,
 	adrp	x3, .LC18	// tmp135,
@@ -1375,7 +1170,7 @@ main:
 	adrp	x0, .LC20	// tmp141,
 	add	x0, x0, :lo12:.LC20	//, tmp141,
 	bl	run_test		//
-// demos/heap_vs_stack_fairness.c:307:     run_test(
+// run_test 场景4
 	add	x2, x21, :lo12:test1_stack_small_object	//, tmp116,
 	add	x1, x20, :lo12:.LC13	//, tmp118,
 	mov	w5, 16960	//,
@@ -1387,92 +1182,71 @@ main:
 	adrp	x0, .LC22	// tmp152,
 	add	x0, x0, :lo12:.LC22	//, tmp152,
 	bl	run_test		//
-// demos/heap_vs_stack_fairness.c:316:     printf("\n======================================\n");
+// 结论与要点（连串 puts）
 	adrp	x0, .LC23	// tmp154,
 	add	x0, x0, :lo12:.LC23	//, tmp154,
 	bl	puts		//
-// demos/heap_vs_stack_fairness.c:317:     printf("结论\n");
 	adrp	x0, .LC24	// tmp156,
 	add	x0, x0, :lo12:.LC24	//, tmp156,
 	bl	puts		//
-// demos/heap_vs_stack_fairness.c:318:     printf("======================================\n");
 	add	x0, x19, :lo12:.LC9	//, tmp103,
 	bl	puts		//
-// demos/heap_vs_stack_fairness.c:319:     printf("\n");
 	mov	w0, 10	//,
 	bl	putchar		//
-// demos/heap_vs_stack_fairness.c:320:     printf("✓ 场景1：栈完胜（小对象短生命周期）\n");
 	adrp	x0, .LC25	// tmp160,
 	add	x0, x0, :lo12:.LC25	//, tmp160,
 	bl	puts		//
-// demos/heap_vs_stack_fairness.c:321:     printf("  → 这是栈的优势场景\n\n");
 	adrp	x0, .LC26	// tmp162,
 	add	x0, x0, :lo12:.LC26	//, tmp162,
 	bl	puts		//
-// demos/heap_vs_stack_fairness.c:323:     printf("⚖️ 场景2：堆可能更好（对象复用）\n");
 	adrp	x0, .LC27	// tmp164,
 	add	x0, x0, :lo12:.LC27	//, tmp164,
 	bl	puts		//
-// demos/heap_vs_stack_fairness.c:324:     printf("  → 堆分配一次 vs 栈每次函数调用\n");
 	adrp	x0, .LC28	// tmp166,
 	add	x0, x0, :lo12:.LC28	//, tmp166,
 	bl	puts		//
-// demos/heap_vs_stack_fairness.c:325:     printf("  → 取决于函数调用开销\n\n");
 	adrp	x0, .LC29	// tmp168,
 	add	x0, x0, :lo12:.LC29	//, tmp168,
 	bl	puts		//
-// demos/heap_vs_stack_fairness.c:327:     printf("✓ 场景3：堆必需（大对象）\n");
 	adrp	x0, .LC30	// tmp170,
 	add	x0, x0, :lo12:.LC30	//, tmp170,
 	bl	puts		//
-// demos/heap_vs_stack_fairness.c:328:     printf("  → 栈有大小限制（~8MB）\n");
 	adrp	x0, .LC31	// tmp172,
 	add	x0, x0, :lo12:.LC31	//, tmp172,
 	bl	puts		//
-// demos/heap_vs_stack_fairness.c:329:     printf("  → 堆可以分配任意大小\n\n");
 	adrp	x0, .LC32	// tmp174,
 	add	x0, x0, :lo12:.LC32	//, tmp174,
 	bl	puts		//
-// demos/heap_vs_stack_fairness.c:331:     printf("⚖️ 场景4：堆接近栈（内存池）\n");
 	adrp	x0, .LC33	// tmp176,
 	add	x0, x0, :lo12:.LC33	//, tmp176,
 	bl	puts		//
-// demos/heap_vs_stack_fairness.c:332:     printf("  → 内存池优化后，堆可以很快\n");
 	adrp	x0, .LC34	// tmp178,
 	add	x0, x0, :lo12:.LC34	//, tmp178,
 	bl	puts		//
-// demos/heap_vs_stack_fairness.c:333:     printf("  → tcmalloc/jemalloc更快\n\n");
 	adrp	x0, .LC35	// tmp180,
 	add	x0, x0, :lo12:.LC35	//, tmp180,
 	bl	puts		//
-// demos/heap_vs_stack_fairness.c:335:     printf("核心要点：\n");
 	adrp	x0, .LC36	// tmp182,
 	add	x0, x0, :lo12:.LC36	//, tmp182,
 	bl	puts		//
-// demos/heap_vs_stack_fairness.c:336:     printf("  不是\"栈快为什么不全用栈\"\n");
 	adrp	x0, .LC37	// tmp184,
 	add	x0, x0, :lo12:.LC37	//, tmp184,
 	bl	puts		//
-// demos/heap_vs_stack_fairness.c:337:     printf("  而是\"什么场景用什么\"\n\n");
 	adrp	x0, .LC38	// tmp186,
 	add	x0, x0, :lo12:.LC38	//, tmp186,
 	bl	puts		//
-// demos/heap_vs_stack_fairness.c:339:     printf("  - 小对象、短生命周期 → 栈（性能最优）\n");
 	adrp	x0, .LC39	// tmp188,
 	add	x0, x0, :lo12:.LC39	//, tmp188,
 	bl	puts		//
-// demos/heap_vs_stack_fairness.c:340:     printf("  - 大对象、跨函数、动态大小 → 堆（功能需求）\n");
 	adrp	x0, .LC40	// tmp190,
 	add	x0, x0, :lo12:.LC40	//, tmp190,
 	bl	puts		//
-// demos/heap_vs_stack_fairness.c:341:     printf("  - 对象复用、内存池 → 堆也可以很快\n");
 	adrp	x0, .LC41	// tmp192,
 	add	x0, x0, :lo12:.LC41	//, tmp192,
 	bl	puts		//
-// demos/heap_vs_stack_fairness.c:342:     printf("\n");
 	mov	w0, 10	//,
 	bl	putchar		//
-// demos/heap_vs_stack_fairness.c:345: }
+// }
 	ldr	x21, [sp, 32]	//,
 	mov	w0, 0	//,
 	ldp	x19, x20, [sp, 16]	//,,
@@ -1487,7 +1261,7 @@ main:
 	.cfi_endproc
 .LFE13:
 	.size	main, .-main
-/* g_sum：volatile 防优化全局累加；测试循环通过 .LANCHOR0 / adrp 引用。 */
+/* g_sum：volatile 全局，循环经 .LANCHOR0 引用 */
 	.global	g_sum
 	.section	.rodata.cst16,"aM",@progbits,16
 	.align	4

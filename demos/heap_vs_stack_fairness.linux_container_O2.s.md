@@ -1,3 +1,4 @@
+```asm	
 	.arch armv8-a
 	.file	"heap_vs_stack_fairness.c"
 /* ============================================================================
@@ -1502,3 +1503,4 @@ g_sum:
 	.zero	4
 	.ident	"GCC: (Alpine 15.2.0) 15.2.0"
 	.section	.note.GNU-stack,"",@progbits
+```
